@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+
+# OCR Patient Data (Bảo mật thông tin bệnh nhân, tránh đẩy file test lên Github)
+*.pdf
+*_extracted.txt
+*_fields.json
+test_output.txt
+api_key.txt
+.env
+
