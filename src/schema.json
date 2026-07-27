@@ -1,0 +1,196 @@
+{
+  "PHAN_LOAI_BENH_LY_NEN": {
+    "has_underlying_disease": {
+      "type": "boolean",
+      "description": "True nếu 'Có bệnh lý nền', False nếu 'Không có bệnh lý nền'"
+    }
+  },
+  "A_CHI_SO_SINH_LY_CO_BAN": {
+    "tuoi": {
+      "type": "integer",
+      "unit": "tuổi",
+      "required": true,
+      "description": "Tuổi của bệnh nhân"
+    },
+    "gioi_tinh": {
+      "type": "string",
+      "enum": ["Nam", "Nữ"],
+      "required": true,
+      "description": "Giới tính của bệnh nhân"
+    },
+    "hut_thuoc_la": {
+      "type": "boolean",
+      "required": true,
+      "description": "True nếu có hút thuốc lá (đang hút), False nếu không"
+    },
+    "huyet_ap_tam_thu_sbp": {
+      "type": "integer",
+      "unit": "mmHg",
+      "required": true,
+      "description": "Huyết áp tâm thu (SBP)"
+    },
+    "cholesterol_toan_phan": {
+      "type": "float",
+      "unit": "mmol/L",
+      "required": true,
+      "description": "Chỉ số Cholesterol toàn phần"
+    },
+    "hdl_cholesterol": {
+      "type": "float",
+      "unit": "mmol/L",
+      "required": true,
+      "description": "Chỉ số HDL-Cholesterol"
+    }
+  },
+  "TON_THUONG_CO_QUAN_DICH": {
+    "phi_dai_that_trai": {
+      "type": "boolean",
+      "description": "Có phì đại thất trái hay không"
+    },
+    "ton_thuong_day_mat": {
+      "type": "boolean",
+      "description": "Có tổn thương đáy mắt hay không"
+    },
+    "albumin_microalbumin_nieu": {
+      "type": "boolean",
+      "description": "Có Albumin / Microalbumin niệu hay không"
+    },
+    "ton_thuong_tham_lang_tren_nao": {
+      "type": "boolean",
+      "description": "Có tổn thương thầm lặng trên não hay không"
+    }
+  },
+  "C_BENH_LY_MAN_TINH_KEM_THEO": {
+    "egfr": {
+      "type": "integer",
+      "unit": "mL/min/1.73m²",
+      "description": "Độ thanh thải cầu thận (eGFR)"
+    },
+    "acr": {
+      "type": "integer",
+      "unit": "mg/g",
+      "description": "Tỷ lệ Albumin/Creatinin (ACR)"
+    },
+    "dai_thao_duong": {
+      "type": "boolean",
+      "description": "Bệnh đái tháo đường (Diabetes)"
+    },
+    "nhoi_mau_co_tim": {
+      "type": "boolean",
+      "description": "Bệnh nhồi máu cơ tim"
+    },
+    "benh_ly_mach_vanh": {
+      "type": "boolean",
+      "description": "Bệnh lý mạch vành"
+    },
+    "phinh_dong_mach_chu": {
+      "type": "boolean",
+      "description": "Phình động mạch chủ"
+    },
+    "vua_xo_mach_mau": {
+      "type": "boolean",
+      "description": "Vữa xơ mạch máu"
+    },
+    "dot_quy_nao": {
+      "type": "boolean",
+      "description": "Đột quỵ não (Stroke)"
+    },
+    "hoi_chung_vanh_cap": {
+      "type": "boolean",
+      "description": "Hội chứng vành cấp"
+    },
+    "thieu_mau_cuc_bo_nao_thoang_qua_tia": {
+      "type": "boolean",
+      "description": "Thiếu máu cục bộ não thoáng qua (TIA)"
+    },
+    "benh_mach_mau_ngoai_vi": {
+      "type": "boolean",
+      "description": "Bệnh mạch máu ngoại vi"
+    },
+    "tang_cholesterol_mau_gia_dinh": {
+      "type": "boolean",
+      "description": "Tăng Cholesterol máu gia đình"
+    }
+  },
+  "THONG_TIN_CA_NHAN": {
+    "ho_va_ten": {
+      "type": "string",
+      "required": true,
+      "description": "Họ và tên bệnh nhân"
+    },
+    "ngay_sinh": {
+      "type": "string",
+      "format": "dd/mm/yyyy",
+      "description": "Ngày sinh"
+    },
+    "gioi_tinh": {
+      "type": "string",
+      "enum": ["Nam", "Nữ", "Khác"],
+      "description": "Giới tính"
+    },
+    "cccd_cmnd": {
+      "type": "string",
+      "description": "Mã số định danh CCCD/CMND"
+    },
+    "trang_thai_ho_so": {
+      "type": "string",
+      "enum": ["Hoạt động", "Tạm dừng"],
+      "required": true,
+      "description": "Trạng thái hồ sơ"
+    }
+  },
+  "THONG_TIN_LIEN_HE_AND_DIA_CHI": {
+    "so_dien_thoai": {
+      "type": "string",
+      "description": "Số điện thoại liên hệ"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "Địa chỉ Email"
+    },
+    "tinh_thanh_pho": {
+      "type": "string",
+      "description": "Tỉnh / Thành phố"
+    },
+    "quan_huyen": {
+      "type": "string",
+      "description": "Quận / Huyện"
+    },
+    "so_nha_ten_duong": {
+      "type": "string",
+      "description": "Số nhà, tên đường (Thôn, xóm)"
+    },
+    "dia_chi_day_du": {
+      "type": "string",
+      "description": "Địa chỉ đầy đủ (tùy chỉnh hoặc kết hợp)"
+    }
+  },
+  "CHI_SO_AND_TIEN_SU_SUC_KHOE": {
+    "chieu_cao": {
+      "type": "integer",
+      "unit": "cm",
+      "description": "Chiều cao"
+    },
+    "can_nang": {
+      "type": "integer",
+      "unit": "kg",
+      "description": "Cân nặng"
+    },
+    "nhom_mau": {
+      "type": "string",
+      "enum": ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
+      "description": "Nhóm máu"
+    },
+    "tien_su_benh_ly": {
+      "type": "string",
+      "description": "Tiền sử bệnh / Bệnh lý hiện tại"
+    }
+  },
+  "D_THONG_TIN_NHOM_CHAM_SOC": {
+    "ma_nhom_cham_soc": {
+      "type": "string",
+      "description": "Mã nhóm chăm sóc (Care Group Code) - Tùy chọn"
+    }
+  }
+}
