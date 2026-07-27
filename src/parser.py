@@ -3,7 +3,7 @@ import os
 import json
 import requests
 from typing import Dict, Any
-from src.config import GEMINI_API_KEY, GEMINI_API_URL
+from src.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS
 
 def convert_to_gemini_schema(schema_dict: dict) -> dict:
     """
@@ -47,9 +47,47 @@ def convert_to_gemini_schema(schema_dict: dict) -> dict:
         "properties": gemini_properties
     }
 
+def get_disease_only_schema(schema_dict: dict) -> dict:
+    """
+    Tạo schema thu gọn chỉ bao gồm các trường cờ bệnh lý (boolean) để gửi cho Gemini.
+    """
+    disease_sections = ["PHAN_LOAI_BENH_LY_NEN", "TON_THUONG_CO_QUAN_DICH", "C_BENH_LY_MAN_TINH_KEM_THEO"]
+    mini_schema = {}
+    for section_name in disease_sections:
+        if section_name in schema_dict:
+            mini_fields = {}
+            for field_name, field_meta in schema_dict[section_name].items():
+                if field_meta.get("type") == "boolean":
+                    mini_fields[field_name] = field_meta
+            if mini_fields:
+                mini_schema[section_name] = mini_fields
+    return mini_schema
+
+def extract_diagnostic_text(text: str) -> str:
+    """
+    Trích xuất đoạn văn bản Chẩn đoán / Tiền sử bệnh ngắn để gửi cho Gemini API.
+    """
+    diag_match = re.search(
+        r'(?:Chẩn đoán|Chẩn đoán chính|Chẩn đoán sơ bộ|Tiền sử|Bệnh lý):\s*\n?\s*([^\n]+(?:\n[^\n]+){0,5})',
+        text,
+        re.IGNORECASE
+    )
+    if diag_match:
+        return clean_value(diag_match.group(0))
+    
+    # Fallback: lấy các dòng chứa từ khóa y khoa
+    lines = text.split('\n')
+    diag_lines = [
+        l.strip() for l in lines 
+        if any(k in l.lower() for k in ["chẩn đoán", "tiền sử", "bệnh", "mạch", "tim", "xơ vữa", "tháo đường", "thận", "não", "vữa xơ"])
+    ]
+    if diag_lines:
+        return " ".join(diag_lines[:5])
+    return text[:500].strip()
+
 def fill_missing_fields(data: dict, schema_dict: dict) -> dict:
     """
-    Điền các trường bị thiếu trong kết quả trả về từ Gemini bằng giá trị mặc định (null hoặc false/true)
+    Điền các trường bị thiếu trong kết quả trả về bằng giá trị mặc định (null hoặc false)
     để đảm bảo file kết quả JSON luôn chứa đầy đủ 100% các trường định nghĩa trong schema.
     """
     if not isinstance(data, dict):
@@ -66,12 +104,10 @@ def fill_missing_fields(data: dict, schema_dict: dict) -> dict:
         for field_name, field_meta in section_fields.items():
             field_type = field_meta.get("type", "string").lower()
             
-            # Kiểm tra xem trường đó có trong kết quả trả về của Gemini không
-            if field_name in gemini_section:
+            if field_name in gemini_section and gemini_section[field_name] is not None:
                 val = gemini_section[field_name]
                 filled_data[section_name][field_name] = val
             else:
-                # Nếu không có trường này trong kết quả của Gemini, ta gán giá trị mặc định
                 if field_type == "boolean":
                     filled_data[section_name][field_name] = False
                 else:
@@ -79,33 +115,45 @@ def fill_missing_fields(data: dict, schema_dict: dict) -> dict:
                     
     return filled_data
 
-def parse_medical_fields_gemini(text: str, schema_path: str) -> Dict[str, Any]:
+def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str, Any]:
     """
-    Gửi văn bản hồ sơ bệnh án cùng với cấu trúc schema.json tới Gemini API để nhận diện chính xác
-    các trường thông tin có cấu trúc dưới dạng JSON.
+    Tối ưu tốc độ phản hồi toàn trình:
+    1. Bóc tách dữ liệu hành chính & chỉ số số học bằng Regex offline.
+    2. Chỉ trích xuất đoạn chẩn đoán y khoa ngắn và gửi kèm schema cờ bệnh lý thu gọn cho Gemini API.
+    3. Kết hợp kết quả Regex + Gemini thành JSON hoàn chỉnh 100% cấu trúc schema.
     """
+    # 1. Bóc tách bằng Regex offline trước
+    regex_data = parse_medical_fields(text)
+    
+    if not schema_path:
+        schema_path = os.path.join(os.path.dirname(__file__), "schema.json")
+        
+    schema_dict = {}
+    if os.path.exists(schema_path):
+        try:
+            with open(schema_path, "r", encoding="utf-8") as f:
+                schema_dict = json.load(f)
+        except Exception:
+            pass
+
+    # Nếu không có API Key, trả về kết quả bóc tách Regex đã fill missing fields
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_API_KEY":
+        return fill_missing_fields(regex_data, schema_dict)
+
     try:
-        # Đọc file schema.json
-        if not os.path.exists(schema_path):
-            return {"error": f"Không tìm thấy file schema tại: {schema_path}"}
-            
-        with open(schema_path, "r", encoding="utf-8") as f:
-            schema_dict = json.load(f)
-            
-        # Chuyển đổi sang OpenAPI Schema
-        gemini_schema = convert_to_gemini_schema(schema_dict)
+        # 2. Trích xuất đoạn chẩn đoán y khoa ngắn
+        chandoan_text = extract_diagnostic_text(text)
         
-        # Gọi API
+        # 3. Tạo Schema thu gọn chỉ chứa các bệnh lý (boolean)
+        disease_schema_dict = get_disease_only_schema(schema_dict)
+        gemini_schema = convert_to_gemini_schema(disease_schema_dict)
+        
+        # 4. Gửi request Gemini API với prompt tối ưu & tham số sinh siêu tốc
         url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
-        
         prompt = (
-            "Bạn là một chuyên gia phân tích hồ sơ bệnh án. Hãy đọc kỹ văn bản kết quả xét nghiệm/khám bệnh sau đây "
-            "và trích xuất chính xác toàn bộ các trường thông tin lâm sàng được định nghĩa trong schema JSON.\n"
-            "Yêu cầu:\n"
-            "- Điền giá trị đúng kiểu dữ liệu quy định trong schema (ví dụ: integer, float, boolean, enum, string).\n"
-            "- Trả về định dạng JSON khớp 100% với cấu trúc schema.\n"
-            "- Chỉ trích xuất từ dữ liệu thực tế của hồ sơ bệnh nhân, không tự bịa ra thông tin.\n\n"
-            f"VĂN BẢN HỒ SƠ Y TẾ:\n{text}"
+            "Bạn là chuyên gia y tế. Hãy phân tích đoạn chẩn đoán sau và xác định các bệnh lý có mặt "
+            "(gán true cho các bệnh lý thực sự được chẩn đoán):\n\n"
+            f"VĂN BẢN CHẨN ĐOÁN:\n{chandoan_text}"
         )
         
         payload = {
@@ -116,15 +164,15 @@ def parse_medical_fields_gemini(text: str, schema_path: str) -> Dict[str, Any]:
             }],
             "generationConfig": {
                 "responseMimeType": "application/json",
-                "responseSchema": gemini_schema
+                "responseSchema": gemini_schema,
+                "temperature": GEMINI_TEMPERATURE,
+                "maxOutputTokens": GEMINI_MAX_OUTPUT_TOKENS
             }
         }
         
-        headers = {
-            "Content-Type": "application/json"
-        }
+        headers = {"Content-Type": "application/json"}
         
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
         
         if response.status_code == 200:
             resp_json = response.json()
@@ -132,15 +180,21 @@ def parse_medical_fields_gemini(text: str, schema_path: str) -> Dict[str, Any]:
             if candidates:
                 text_content = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 gemini_data = json.loads(text_content)
-                # Điền đầy đủ các trường bị thiếu từ schema gốc
-                return fill_missing_fields(gemini_data, schema_dict)
-            else:
-                return {"error": "API trả về phản hồi rỗng từ Gemini."}
-        else:
-            return {"error": f"Lỗi gọi Gemini API (Status {response.status_code}): {response.text}"}
-            
+                
+                # Merge dữ liệu bệnh lý từ Gemini vào regex_data
+                for sec_name, fields in gemini_data.items():
+                    if sec_name in regex_data and isinstance(fields, dict):
+                        for f_name, f_val in fields.items():
+                            if f_val is True or regex_data[sec_name].get(f_name) is True:
+                                regex_data[sec_name][f_name] = True
+                            elif regex_data[sec_name].get(f_name) is None:
+                                regex_data[sec_name][f_name] = f_val
+                                
     except Exception as e:
-        return {"error": f"Lỗi kết nối hoặc xử lý trích xuất qua Gemini: {str(e)}"}
+        # Nếu có lỗi kết nối/API, giữ lại kết quả từ Regex
+        pass
+
+    return fill_missing_fields(regex_data, schema_dict)
 
 def clean_value(val: str) -> str:
     """Dọn dẹp ký tự thừa."""

@@ -13,8 +13,12 @@ if GEMINI_API_KEY == "YOUR_API_KEY" and os.path.exists(_key_file):
     except Exception:
         pass
 
-# Đường dẫn URL API của Gemini (cho phép thay đổi endpoint hoặc phiên bản model)
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+# Đường dẫn URL API của Gemini (tối ưu tốc độ sinh token: gemini-2.0-flash-lite)
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent"
+
+# Cấu hình tham số sinh tối ưu
+GEMINI_TEMPERATURE = 0.0
+GEMINI_MAX_OUTPUT_TOKENS = 512
 
 # Lựa chọn Engine OCR: "rapidocr" hoặc "tesseract"
 # - "rapidocr": Khuyên dùng. Chạy cực nhanh trên CPU qua ONNX Runtime, tự động chạy sau khi pip install, không cần cài thêm phần mềm ngoài.
