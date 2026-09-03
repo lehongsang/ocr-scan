@@ -11,11 +11,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.main import process_pdf
 from src.config import PDF_RENDER_DPI, OCR_LANG, OCR_ENGINE
+from src.cccd import process_cccd_image
 
 app = FastAPI(
-    title="OCR & Text Extraction API",
-    description="API trích xuất thông tin bệnh án từ file PDF và Hình ảnh sử dụng PyMuPDF & Tesseract/RapidOCR",
-    version="1.0.0"
+    title="OCR & Document Intelligence API",
+    description="Hệ thống API OCR đa năng: Trích xuất Bệnh án y tế (PDF) & Căn cước công dân (CCCD).",
+    version="2.0.0"
 )
 
 # Cho phép CORS để các client khác gọi được
@@ -27,18 +28,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/ocr")
-async def perform_ocr(
-    file: UploadFile = File(...),
-    force_ocr: bool = Form(False),
-    dpi: int = Form(PDF_RENDER_DPI),
-    lang: str = Form(OCR_LANG),
-    engine: str = Form(OCR_ENGINE)
+# ==========================================
+# 1. API OCR BỆNH ÁN / PDF TÀI LIỆU
+# ==========================================
+@app.post("/ocr/pdf", summary="OCR & Trích xuất Bệnh án từ PDF")
+@app.post("/ocr", summary="[Legacy] Alias cho OCR PDF Bệnh án", include_in_schema=False)
+async def perform_ocr_pdf(
+    file: UploadFile = File(..., description="Tệp tin PDF hoặc ảnh bệnh án"),
+    force_ocr: bool = Form(False, description="Bắt buộc chạy OCR ngay cả khi PDF có text"),
+    dpi: int = Form(PDF_RENDER_DPI, description="Độ phân giải render PDF"),
+    lang: str = Form(OCR_LANG, description="Ngôn ngữ OCR"),
+    engine: str = Form(OCR_ENGINE, description="Engine OCR (rapidocr / tesseract)")
 ):
     """
-    Tiếp nhận tệp tin PDF/Ảnh và trích xuất cấu trúc dữ liệu bệnh án dưới dạng JSON.
+    Tiếp nhận tệp tin PDF/Ảnh bệnh án và trích xuất cấu trúc dữ liệu y khoa chuẩn dưới dạng JSON.
     """
-    suffix = os.path.splitext(file.filename)[1]
+    suffix = os.path.splitext(file.filename)[1] if file.filename else ".pdf"
     # Tạo tệp tạm để ghi file tải lên
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -84,15 +89,50 @@ async def perform_ocr(
                     os.remove(path)
                 except Exception:
                     pass
-        raise HTTPException(status_code=500, detail=f"Lỗi xử lý OCR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý OCR PDF: {str(e)}")
 
-@app.get("/health")
+# ==========================================
+# 2. API OCR CĂN CƯỚC CÔNG DÂN (CCCD)
+# ==========================================
+@app.post("/ocr/cccd", summary="OCR & Trích xuất thông tin Căn cước công dân (CCCD)")
+async def perform_ocr_cccd(
+    file: UploadFile = File(..., description="Ảnh chụp Căn cước công dân (JPG, PNG, WEBP, PDF 1 trang)")
+):
+    """
+    Tiếp nhận ảnh chụp CCCD (mặt trước / gắn chip / mã vạch / CMND) và trả về thông tin định danh cá nhân có cấu trúc.
+    Tự động kết hợp quét QR Code tốc độ cao và AI OCR tiếng Việt.
+    """
+    try:
+        image_bytes = await file.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="Tệp tin tải lên rỗng.")
+            
+        # Xử lý trích xuất CCCD
+        result = process_cccd_image(image_bytes)
+        return result
+        
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý OCR CCCD: {str(e)}")
+
+# ==========================================
+# 3. HEALTH CHECK
+# ==========================================
+@app.get("/health", summary="Kiểm tra trạng thái server")
 async def health_check():
     """
     Kiểm tra trạng thái hoạt động của server OCR.
     """
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "supported_apis": [
+            {"endpoint": "/ocr/pdf", "description": "OCR Hồ sơ Bệnh án Y tế (PDF)"},
+            {"endpoint": "/ocr/cccd", "description": "OCR Căn cước công dân (Image/QR)"}
+        ]
+    }
 
 if __name__ == "__main__":
     # Chạy server FastAPI ở cổng 8009
     uvicorn.run(app, host="0.0.0.0", port=8009)
+
