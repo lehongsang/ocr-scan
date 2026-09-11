@@ -154,7 +154,7 @@ def parse_cccd_text(ocr_text: str) -> Dict[str, Any]:
         re.IGNORECASE
     )
     expiry_pattern = re.compile(
-        r'(?:ngày,?\s*tháng,?\s*năm hết hạn|ngay,?\s*thang,?\s*nam het han|date of expiry|dateofexpiry|hết hạn|het han|giá trị đến|gia tri den|giattden|expiry|expin)\s*[:./]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4}|Không thời hạn|Khong thoi han)', 
+        r'(?:ngày,?\s*tháng,?\s*năm hết hạn|ngay,?\s*thang,?\s*nam het han|date of expiry|dateofexpiry|dateofexpiy|date\s*otbxpiry|otbxpiry|hết hạn|het han|hethan|giá trị đến|gia tri den|giattden|cogiatden|cogiatiden|cogiat|có giá trị đến|co gia tri den|expiry|expin)\s*[:./]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4}|Không thời hạn|Khong thoi han)', 
         re.IGNORECASE
     )
 
@@ -176,13 +176,17 @@ def parse_cccd_text(ocr_text: str) -> Dict[str, Any]:
                 data["date_of_expiry"] = "Không thời hạn"
             else:
                 data["date_of_expiry"] = val.replace('-', '/')
-        elif not data["date_of_expiry"] and any(k in line.lower() for k in ["date of expiry", "dateofexpiry", "het han", "hết hạn", "gia tri den"]):
-            if i + 1 < len(lines):
-                m_e = re.search(r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{4})\b', lines[i + 1])
+        elif not data["date_of_expiry"] and any(k in line.lower() for k in ["date of expiry", "dateofexpiry", "dateofexpiy", "otbxpiry", "het han", "hết hạn", "gia tri den", "cogiat", "có giá trị"]):
+            # Tìm ngày ở dòng hiện tại, dòng trước hoặc sau
+            m_curr = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', line)
+            if m_curr:
+                data["date_of_expiry"] = m_curr.group(1).replace('-', '/')
+            elif i + 1 < len(lines):
+                m_e = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', lines[i + 1])
                 if m_e:
                     data["date_of_expiry"] = m_e.group(1).replace('-', '/')
             elif i > 0:
-                m_e = re.search(r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{4})\b', lines[i - 1])
+                m_e = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', lines[i - 1])
                 if m_e:
                     data["date_of_expiry"] = m_e.group(1).replace('-', '/')
 
@@ -203,6 +207,26 @@ def parse_cccd_text(ocr_text: str) -> Dict[str, Any]:
                     except ValueError:
                         pass
             if data["date_of_birth"]:
+                break
+
+    # Fallback cho ngày hết hạn: Tìm ngày có năm trong tương lai (> năm hiện tại - 2)
+    if not data["date_of_expiry"]:
+        current_year = datetime.now().year
+        date_regex = re.compile(r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{4})\b')
+        for line in lines:
+            for d in date_regex.findall(line):
+                formatted = d.replace('-', '/')
+                parts = formatted.split('/')
+                if len(parts) == 3:
+                    try:
+                        day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                        if 1 <= day <= 31 and 1 <= month <= 12 and year >= current_year - 1:
+                            if formatted != data.get("date_of_birth") and formatted != data.get("issue_date"):
+                                data["date_of_expiry"] = formatted
+                                break
+                    except ValueError:
+                        pass
+            if data["date_of_expiry"]:
                 break
 
     # 3. Giới tính (Sex/Gender)
@@ -562,11 +586,22 @@ def parse_cccd_back_text(ocr_text: str) -> Dict[str, Any]:
     mrz_lines = []
     for line in lines:
         cleaned_mrz_line = re.sub(r'\s+', '', line)
-        if ("<<" in cleaned_mrz_line or cleaned_mrz_line.startswith("I<") or cleaned_mrz_line.startswith("ID") or cleaned_mrz_line.startswith("IR") or cleaned_mrz_line.startswith("LE<<") or cleaned_mrz_line.startswith("NGUYEN<<")) and len(cleaned_mrz_line) >= 15:
+        if ("<<" in cleaned_mrz_line or cleaned_mrz_line.startswith("I<") or cleaned_mrz_line.startswith("ID") or cleaned_mrz_line.startswith("IR") or cleaned_mrz_line.startswith("LE<<") or cleaned_mrz_line.startswith("NGUYEN<<") or cleaned_mrz_line.startswith("BU<") or cleaned_mrz_line.startswith("BUI<")) and len(cleaned_mrz_line) >= 15:
             mrz_lines.append(cleaned_mrz_line)
 
     if len(mrz_lines) >= 2:
         data["mrz"] = "\n".join(mrz_lines)
+
+    # Trích xuất bổ trợ ngày hết hạn từ dải mã MRZ (Dòng 2: YYMMDD[sex]YYMMDD)
+    if not data["date_of_expiry"]:
+        for line in lines:
+            cleaned_l = re.sub(r'\s+', '', line)
+            m_mrz_date = re.search(r'(\d{2})(\d{2})(\d{2})\d[MFX](\d{2})(\d{2})(\d{2})\d[A-Z]{3}', cleaned_l)
+            if m_mrz_date:
+                # Ngày hết hạn: YYMMDD -> DD/MM/20YY
+                exp_yy, exp_mm, exp_dd = m_mrz_date.group(4), m_mrz_date.group(5), m_mrz_date.group(6)
+                data["date_of_expiry"] = f"{exp_dd}/{exp_mm}/20{exp_yy}"
+                break
 
     return data
 
