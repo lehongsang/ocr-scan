@@ -9,14 +9,15 @@ import uvicorn
 # Thêm thư mục gốc của dự án vào sys.path để import từ src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from typing import Optional, List
 from src.main import process_pdf
 from src.config import PDF_RENDER_DPI, OCR_LANG, OCR_ENGINE
-from src.cccd import process_cccd_image
+from src.cccd import process_cccd_image, process_cccd_both_sides
 
 app = FastAPI(
     title="OCR & Document Intelligence API",
-    description="Hệ thống API OCR đa năng: Trích xuất Bệnh án y tế (PDF) & Căn cước công dân (CCCD).",
-    version="2.0.0"
+    description="Hệ thống API OCR đa năng: Trích xuất Bệnh án y tế (PDF) & Căn cước công dân (CCCD) 2 mặt.",
+    version="2.1.0"
 )
 
 # Cho phép CORS để các client khác gọi được
@@ -92,25 +93,36 @@ async def perform_ocr_pdf(
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý OCR PDF: {str(e)}")
 
 # ==========================================
-# 2. API OCR CĂN CƯỚC CÔNG DÂN (CCCD)
+# 2. API OCR CĂN CƯỚC CÔNG DÂN (CCCD 2 MẶT)
 # ==========================================
-@app.post("/ocr/cccd", summary="OCR & Trích xuất thông tin Căn cước công dân (CCCD)")
+@app.post("/ocr/cccd", summary="OCR & Trích xuất thông tin Căn cước công dân (CCCD 2 mặt)")
 async def perform_ocr_cccd(
-    file: UploadFile = File(..., description="Ảnh chụp Căn cước công dân (JPG, PNG, WEBP, PDF 1 trang)")
+    front_file: UploadFile = File(..., description="Ảnh mặt trước CCCD / CMND"),
+    back_file: UploadFile = File(..., description="Ảnh mặt sau CCCD / CMND")
 ):
     """
-    Tiếp nhận ảnh chụp CCCD (mặt trước / gắn chip / mã vạch / CMND) và trả về thông tin định danh cá nhân có cấu trúc.
-    Tự động kết hợp quét QR Code tốc độ cao và AI OCR tiếng Việt.
+    Tiếp nhận ảnh chụp CCCD/CMND 2 mặt:
+    - `front_file` (Bắt buộc): Ảnh mặt trước CCCD/CMND.
+    - `back_file` (Bắt buộc): Ảnh mặt sau CCCD/CMND.
+    Hệ thống tự động quét QR, bóc tách OCR, nhận diện loại thẻ và hợp nhất dữ liệu 2 mặt.
     """
     try:
-        image_bytes = await file.read()
-        if not image_bytes:
-            raise HTTPException(status_code=400, detail="Tệp tin tải lên rỗng.")
-            
-        # Xử lý trích xuất CCCD
-        result = process_cccd_image(image_bytes)
-        return result
-        
+        def is_upload(f):
+            return f is not None and (isinstance(f, UploadFile) or hasattr(f, "read"))
+
+        if not is_upload(front_file) or not is_upload(back_file):
+            raise HTTPException(status_code=400, detail="Vui lòng tải lên đầy đủ cả 2 mặt: ảnh mặt trước (front_file) và ảnh mặt sau (back_file).")
+
+        front_bytes = await front_file.read()
+        back_bytes = await back_file.read()
+
+        if not front_bytes:
+            raise HTTPException(status_code=400, detail="Tệp tin ảnh mặt trước (front_file) bị rỗng.")
+        if not back_bytes:
+            raise HTTPException(status_code=400, detail="Tệp tin ảnh mặt sau (back_file) bị rỗng.")
+
+        return process_cccd_both_sides(front_bytes, back_bytes)
+
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
@@ -128,7 +140,7 @@ async def health_check():
         "status": "healthy",
         "supported_apis": [
             {"endpoint": "/ocr/pdf", "description": "OCR Hồ sơ Bệnh án Y tế (PDF)"},
-            {"endpoint": "/ocr/cccd", "description": "OCR Căn cước công dân (Image/QR)"}
+            {"endpoint": "/ocr/cccd", "description": "OCR Căn cước công dân 1 & 2 mặt (Image/QR/PDF)"}
         ]
     }
 

@@ -61,9 +61,48 @@ python src/main.py "đường_dẫn_file.pdf" -o "output.txt" --dpi 150
 
 ---
 
+---
+
+## 4. API OCR Căn Cước Công Dân (CCCD 1 Mặt & 2 Mặt)
+
+Hệ thống cung cấp endpoint chuyên sâu `/ocr/cccd` hỗ trợ quét nhận diện CCCD gắn chip, CCCD mã vạch, CMND:
+- **Tự động nhận diện**: Mặt trước, mặt sau hoặc ảnh ghép 2 mặt / PDF 2 trang.
+- **Trích xuất mặt trước**: Số CCCD/CMND, Họ tên, Ngày sinh, Giới tính, Quốc tịch, Quê quán, Nơi thường trú, Ngày hết hạn, Mã QR.
+- **Trích xuất mặt sau**: **Nơi cấp / Cơ quan cấp (`place_of_issue`)**, **Ngày cấp / Thời gian cấp (`issue_date`)**, Đặc điểm nhận dạng (`personal_identification`), Dân tộc (`ethnicity`), Tôn giáo (`religion`), Mã MRZ (`mrz`).
+
+### Khởi động Server API:
+```bash
+python src/server.py
+```
+*Server mặc định chạy tại `http://localhost:8009` (Swagger UI: `http://localhost:8009/docs`).*
+
+### Cách gọi API:
+1. **Quét cả 2 mặt (Mặt trước + Mặt sau):**
+```bash
+curl -X POST "http://localhost:8009/ocr/cccd" \
+  -F "front_file=@/duong/dan/mat_truoc.jpg" \
+  -F "back_file=@/duong/dan/mat_sau.jpg"
+```
+
+2. **Chỉ quét 1 mặt trước:**
+```bash
+curl -X POST "http://localhost:8009/ocr/cccd" \
+  -F "front_file=@/duong/dan/mat_truoc.jpg"
+```
+
+
+---
+
 ## Cấu Trúc Mã Nguồn
-- [src/config.py](file:///c:/Users/Admin/Desktop/ocr/src/config.py): Cấu hình chung cho OCR (DPI, số luồng, đường dẫn Tesseract).
+- [src/server.py](file:///c:/Users/Admin/Desktop/ocr/src/server.py): FastAPI REST Server cung cấp API OCR Bệnh án (`/ocr/pdf`) & CCCD 2 mặt (`/ocr/cccd`).
+- [src/cccd/](file:///c:/Users/Admin/Desktop/ocr/src/cccd/): Module chuyên biệt cho OCR CCCD:
+  - `schema.py`: Pydantic data model cho CCCD (hỗ trợ nơi cấp, ngày cấp, đặc điểm nhận dạng, mrz).
+  - `parser.py`: Trích xuất thông tin thông minh từ text OCR mặt trước và mặt sau, nhận diện mặt thẻ, merge 2 mặt.
+  - `corrector.py`: Tự động sửa lỗi chính tả tiếng Việt, chuẩn hóa tên Tỉnh/Thành phố và Cơ quan cấp.
+  - `processor.py`: Pipeline xử lý ảnh, quét QR code nâng cao và kết hợp OCR 2 mặt.
+- [src/config.py](file:///c:/Users/Admin/Desktop/ocr/src/config.py): Cấu hình chung cho OCR.
 - [src/utils.py](file:///c:/Users/Admin/Desktop/ocr/src/utils.py): Đo hiệu năng, ghi logs.
-- [src/pdf_processor.py](file:///c:/Users/Admin/Desktop/ocr/src/pdf_processor.py): Kiểm tra định dạng PDF, trích xuất text layer trực tiếp và render trang thành ảnh.
-- [src/ocr_engine.py](file:///c:/Users/Admin/Desktop/ocr/src/ocr_engine.py): Chạy OCR đa nhân song song.
-- [src/main.py](file:///c:/Users/Admin/Desktop/ocr/src/main.py): Điều khiển chính của ứng dụng.
+- [src/pdf_processor.py](file:///c:/Users/Admin/Desktop/ocr/src/pdf_processor.py): Kiểm tra định dạng PDF, trích xuất text layer và render PDF sang ảnh.
+- [src/ocr_engine.py](file:///c:/Users/Admin/Desktop/ocr/src/ocr_engine.py): Chạy OCR engine (RapidOCR / Tesseract).
+- [src/main.py](file:///c:/Users/Admin/Desktop/ocr/src/main.py): Điều khiển chính của ứng dụng PDF OCR.
+

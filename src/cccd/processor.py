@@ -1,15 +1,25 @@
 import os
+import sys
+import re
 import cv2
 import numpy as np
 from PIL import Image
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional
+
+# Đảm bảo đường dẫn gốc dự án luôn có trong sys.path
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from src.ocr_engine import get_rapid_ocr_engine
 from src.pdf_processor import render_page_to_image
 from src.utils import logger
-from .parser import parse_cccd_qr_data, parse_cccd_text
-from .corrector import correct_vietnamese_ocr_typos
+from .parser import parse_cccd_qr_data, parse_cccd_text, parse_cccd_back_text, detect_card_side, merge_cccd_results
+from .corrector import correct_vietnamese_ocr_typos, correct_place_of_issue
 from .schema import CCCDData, QRData
+import fitz  # PyMuPDF
+
+
 
 try:
     import zxingcpp
@@ -22,7 +32,6 @@ def try_zxing_decode(img_np: np.ndarray) -> tuple[bool, str]:
     if not HAS_ZXING or img_np is None:
         return False, ""
     try:
-        # Thử đọc trực tiếp với mọi hướng và mọi binarizer
         for binarizer in [zxingcpp.Binarizer.LocalAverage, zxingcpp.Binarizer.GlobalHistogram, zxingcpp.Binarizer.FixedThreshold]:
             barcodes = zxingcpp.read_barcodes(
                 img_np,
@@ -42,57 +51,76 @@ def try_zxing_decode(img_np: np.ndarray) -> tuple[bool, str]:
 def decode_qr_code_advanced(image_np: np.ndarray) -> tuple[bool, str, int]:
     """
     Bộ giải mã QR CCCD chuyên sâu:
-    1. Quét toàn ảnh trên nhiều độ phân giải.
-    2. Cắt vùng góc phần tư (nơi đặt mã QR trên CCCD) để zoom cận cảnh tăng độ tương phản.
-    3. Thử qua các bộ lọc (Grayscale, CLAHE, Sharpen).
+    1. Thử quét trên cả 4 hướng xoay: 0, 90, 180, 270 độ.
+    2. Quét toàn ảnh và các vùng crop trọng điểm (góc trên-phải, góc dưới-phải).
+    3. Thử qua nhiều bộ lọc binarization: Grayscale, CLAHE, Adaptive Threshold, OTSU, Unsharp Mask.
     """
-    h, w = image_np.shape[:2]
-
-    # 1. Quét trên ảnh gốc và ảnh resize chuẩn
-    for scale in [1.0, 1500 / max(h, w) if max(h, w) > 1500 else 1.0, 0.5, 1.5]:
-        if scale == 1.0:
-            resized = image_np
-        else:
-            resized = cv2.resize(image_np, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC)
-            
-        success, text = try_zxing_decode(resized)
-        if success:
-            return True, text, 0
-
-    # 2. Cắt các góc thẻ (Góc trên-phải, dưới-phải, trên-trái, dưới-trái)
-    quadrants = [
-        image_np[0:int(h*0.6), int(w*0.5):w],       # Góc trên bên phải (CCCD gắn chip chuẩn ngang)
-        image_np[int(h*0.4):h, int(w*0.5):w],       # Góc dưới bên phải (Ảnh bị xoay dọc)
-        image_np[0:int(h*0.6), 0:int(w*0.5)],       # Góc trên bên trái
-        image_np[int(h*0.4):h, 0:int(w*0.5)],       # Góc dưới bên trái
+    rotations = [
+        (image_np, 0),
+        (cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE), 90),
+        (cv2.rotate(image_np, cv2.ROTATE_180), 180),
+        (cv2.rotate(image_np, cv2.ROTATE_90_COUNTERCLOCKWISE), 270),
     ]
 
-    for crop in quadrants:
-        if crop.size == 0:
-            continue
-        # Upscale vùng crop lên 2x để mã QR rõ nét hơn
-        upscaled = cv2.resize(crop, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-        success, text = try_zxing_decode(upscaled)
-        if success:
-            return True, text, 0
-            
-        # Thử với ảnh xám và CLAHE cho vùng crop
-        gray = cv2.cvtColor(upscaled, cv2.COLOR_BGR2GRAY) if len(upscaled.shape) == 3 else upscaled
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(gray)
-        success, text = try_zxing_decode(enhanced)
-        if success:
-            return True, text, 0
+    for cur_img, angle in rotations:
+        h, w = cur_img.shape[:2]
 
-    # 3. Fallback dùng OpenCV QRCodeDetector nếu zxing không bắt được
-    try:
-        detector = cv2.QRCodeDetector()
-        gray_full = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY) if len(image_np.shape) == 3 else image_np
-        data, _, _ = detector.detectAndDecode(gray_full)
-        if data and len(data.strip()) > 5:
-            return True, data.strip(), 0
-    except Exception:
-        pass
+        # Vùng trọng điểm chứa QR trên CCCD 2021 (trên-phải) và Căn cước 2024 (dưới-phải)
+        regions = [
+            cur_img,                                                    # Toàn bộ ảnh
+            cur_img[0:int(h*0.65), int(w*0.45):w],                     # Góc trên bên phải (CCCD chip 2021)
+            cur_img[int(h*0.35):h, int(w*0.45):w],                     # Góc dưới bên phải (Căn cước 2024 mặt sau)
+            cur_img[0:int(h*0.65), 0:int(w*0.65)],                     # Góc trên bên trái
+            cur_img[int(h*0.35):h, 0:int(w*0.65)],                     # Góc dưới bên trái
+        ]
+
+        for region in regions:
+            if region is None or region.size == 0:
+                continue
+
+            for scale in [1.0, 1.5, 2.0]:
+                resized = region if scale == 1.0 else cv2.resize(region, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                
+                # 1. Thử trực tiếp ảnh màu
+                success, text = try_zxing_decode(resized)
+                if success:
+                    return True, text, angle
+
+                gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY) if len(resized.shape) == 3 else resized
+
+                # 2. Thử Grayscale
+                success, text = try_zxing_decode(gray)
+                if success:
+                    return True, text, angle
+
+                # 3. Adaptive Threshold (Khắc phục ảnh bị lóa sáng / nền có vân hoa văn)
+                ad_thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 5)
+                success, text = try_zxing_decode(ad_thresh)
+                if success:
+                    return True, text, angle
+
+                # 4. CLAHE tăng tương phản
+                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(gray)
+                success, text = try_zxing_decode(clahe)
+                if success:
+                    return True, text, angle
+
+                # 5. Otsu Threshold
+                _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                success, text = try_zxing_decode(otsu)
+                if success:
+                    return True, text, angle
+
+    # Fallback OpenCV QRCodeDetector
+    for cur_img, angle in rotations:
+        try:
+            detector = cv2.QRCodeDetector()
+            gray_full = cv2.cvtColor(cur_img, cv2.COLOR_BGR2GRAY) if len(cur_img.shape) == 3 else cur_img
+            data, _, _ = detector.detectAndDecode(gray_full)
+            if data and len(data.strip()) > 5:
+                return True, data.strip(), angle
+        except Exception:
+            pass
 
     return False, "", 0
 
@@ -110,74 +138,132 @@ def ocr_image_rapid(image_np: np.ndarray) -> str:
         logger.error(f"Lỗi khi OCR ảnh CCCD: {e}")
         return ""
 
-def process_cccd_image(image_input: Union[str, bytes, np.ndarray, Image.Image]) -> Dict[str, Any]:
-    """
-    Hàm xử lý ảnh Căn cước công dân:
-    1. Đọc và chuẩn hóa ảnh sang OpenCV format.
-    2. Quét mã QR code chuyên sâu (Toàn ảnh + Crop góc QR + Upscale).
-    3. Tự động xoay ảnh về chiều ngang nếu ảnh bị chụp dọc để OCR chính xác hơn.
-    4. Phối hợp kết quả từ QR Code và Text OCR, tự động sửa lỗi chính tả địa danh.
-    """
-    # 1. Chuẩn hóa đầu vào sang numpy BGR image
+def _convert_to_cv2_image(image_input: Union[str, bytes, np.ndarray, Image.Image]) -> np.ndarray:
+    """Chuyển đổi các định dạng đầu vào khác nhau thành numpy BGR image."""
     if isinstance(image_input, str):
         if image_input.lower().endswith(".pdf"):
             pil_img = render_page_to_image(image_input, 0, dpi=300)
-            image_np = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         else:
             image_np = cv2.imread(image_input)
             if image_np is None:
                 pil_img = Image.open(image_input).convert("RGB")
-                image_np = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            return image_np
     elif isinstance(image_input, bytes):
+        if image_input.startswith(b"%PDF"):
+            doc = fitz.open(stream=image_input, filetype="pdf")
+            page = doc[0]
+            pix = page.get_pixmap(dpi=300, alpha=False)
+            pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            doc.close()
+            return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         nparr = np.frombuffer(image_input, np.uint8)
-        image_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     elif isinstance(image_input, Image.Image):
-        image_np = cv2.cvtColor(np.array(image_input.convert("RGB")), cv2.COLOR_RGB2BGR)
+        return cv2.cvtColor(np.array(image_input.convert("RGB")), cv2.COLOR_RGB2BGR)
     elif isinstance(image_input, np.ndarray):
-        image_np = image_input
+        return image_input
     else:
         raise ValueError("Định dạng ảnh đầu vào không hợp lệ.")
 
+def process_single_card_image(image_input: Union[str, bytes, np.ndarray, Image.Image]) -> Dict[str, Any]:
+    """
+    Xử lý một ảnh thẻ CCCD (có thể là mặt trước, mặt sau hoặc ảnh ghép 2 mặt):
+    1. Quét QR code nâng cao trên 4 hướng xoay.
+    2. OCR nội dung văn bản (tự xoay theo hướng tối ưu).
+    3. Nhận diện mặt thẻ (front, back, both).
+    4. Trích xuất thông tin nhân thân (mặt trước) và nơi cấp, ngày cấp, đặc điểm nhận dạng (mặt sau).
+    5. Chuẩn hóa địa danh và cơ quan cấp.
+    """
+    image_np = _convert_to_cv2_image(image_input)
     if image_np is None:
         raise ValueError("Không thể giải mã hình ảnh CCCD.")
 
-    # 2. Quét mã QR nâng cao
-    qr_success, qr_raw, detected_angle = decode_qr_code_advanced(image_np)
+    # 1. Quét mã QR nâng cao
+    qr_success, qr_raw, qr_angle = decode_qr_code_advanced(image_np)
     qr_info = parse_cccd_qr_data(qr_raw) if qr_success else None
 
-    # 3. Chuẩn bị ảnh cho OCR:
+    # 2. Chuẩn bị ảnh cho OCR theo hướng đúng
     h, w = image_np.shape[:2]
-    ocr_img = image_np
-    if h > w:
-        # Ảnh chụp dọc -> Xoay 90 độ để thẻ nằm ngang
+    if qr_success and qr_angle != 0:
+        if qr_angle == 90:
+            ocr_img = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+        elif qr_angle == 180:
+            ocr_img = cv2.rotate(image_np, cv2.ROTATE_180)
+        elif qr_angle == 270:
+            ocr_img = cv2.rotate(image_np, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        else:
+            ocr_img = image_np
+    elif h > w:
         ocr_img = cv2.rotate(image_np, cv2.ROTATE_90_CLOCKWISE)
+    else:
+        ocr_img = image_np
 
-    # 4. Thực hiện OCR Text
+    # 3. Thực hiện OCR Text
     raw_ocr_text = ocr_image_rapid(ocr_img)
     if len(raw_ocr_text.strip()) < 20 and ocr_img is not image_np:
-        raw_ocr_text = ocr_image_rapid(image_np)
-        
-    text_info = parse_cccd_text(raw_ocr_text)
+        alt_text = ocr_image_rapid(image_np)
+        if len(alt_text) > len(raw_ocr_text):
+            raw_ocr_text = alt_text
 
-    # 5. Phục hồi dấu tiếng Việt và sửa lỗi chính tả địa danh cho kết quả OCR
-    place_origin = qr_info.get("place_of_origin") if qr_info and qr_info.get("place_of_origin") else text_info.get("place_of_origin")
-    place_residence = qr_info.get("place_of_residence") if qr_info and qr_info.get("place_of_residence") else text_info.get("place_of_residence")
+    # 4. Nhận diện mặt thẻ
+    card_side = detect_card_side(raw_ocr_text, qr_found=qr_success)
+
+    # 5. Phân tích dữ liệu văn bản
+    front_info = parse_cccd_text(raw_ocr_text)
+    back_info = parse_cccd_back_text(raw_ocr_text)
+
+    # 6. Chuẩn hóa địa chỉ & nơi cấp
+    place_origin = qr_info.get("place_of_origin") if qr_info and qr_info.get("place_of_origin") else (front_info.get("place_of_origin") or back_info.get("place_of_origin"))
+    place_residence = qr_info.get("place_of_residence") if qr_info and qr_info.get("place_of_residence") else (back_info.get("place_of_residence") or front_info.get("place_of_residence"))
     
     place_origin = correct_vietnamese_ocr_typos(place_origin)
     place_residence = correct_vietnamese_ocr_typos(place_residence)
 
-    # 6. Hợp nhất thông tin (Ưu tiên QR cho các trường chuẩn, bổ sung từ OCR)
+    # Xác định ngày cấp & ngày hết hạn
+    issue_date = qr_info.get("issue_date") if qr_info and qr_info.get("issue_date") else (back_info.get("issue_date") or front_info.get("issue_date"))
+    date_of_expiry = back_info.get("date_of_expiry") or front_info.get("date_of_expiry")
+
+    # Nơi cấp
+    place_of_issue = back_info.get("place_of_issue") or front_info.get("place_of_issue")
+    if not place_of_issue and card_side in ["back", "both"]:
+        if "bộ công an" in raw_ocr_text.lower() or "ministry" in raw_ocr_text.lower() or "can cuoc" in raw_ocr_text.lower():
+            place_of_issue = "BỘ CÔNG AN"
+        elif "cảnh sát" in raw_ocr_text.lower() or "cuc truong" in raw_ocr_text.lower():
+            place_of_issue = "CỤC TRƯỞNG CỤC CẢNH SÁT QUẢN LÝ HÀNH CHÍNH VỀ TRẬT TỰ XÃ HỘI"
+
+    if place_of_issue:
+        place_of_issue = correct_place_of_issue(place_of_issue)
+
+    # Họ tên (nếu có dấu từ front thì ưu tiên, nếu OCR mất dấu mà MRZ có thì format MRZ)
+    full_name = qr_info.get("full_name") if qr_info and qr_info.get("full_name") else front_info.get("full_name")
+    if not full_name and back_info.get("mrz"):
+        # Trích xuất từ MRZ dòng tên
+        for mrz_l in back_info["mrz"].split("\n"):
+            if "<<" in mrz_l and not any(c.isdigit() for c in mrz_l):
+                clean_name = mrz_l.replace("<", " ").strip()
+                full_name = re.sub(r'\s+', ' ', clean_name)
+                break
+
+    # Hợp nhất dữ liệu
     final_data = CCCDData(
-        id_number=qr_info.get("id_number") if qr_info and qr_info.get("id_number") else text_info.get("id_number"),
-        full_name=qr_info.get("full_name") if qr_info and qr_info.get("full_name") else text_info.get("full_name"),
-        date_of_birth=qr_info.get("date_of_birth") if qr_info and qr_info.get("date_of_birth") else text_info.get("date_of_birth"),
-        gender=qr_info.get("gender") if qr_info and qr_info.get("gender") else text_info.get("gender"),
-        nationality=text_info.get("nationality", "Việt Nam"),
+        id_number=qr_info.get("id_number") if qr_info and qr_info.get("id_number") else front_info.get("id_number"),
+        full_name=full_name,
+        date_of_birth=qr_info.get("date_of_birth") if qr_info and qr_info.get("date_of_birth") else front_info.get("date_of_birth"),
+        gender=qr_info.get("gender") if qr_info and qr_info.get("gender") else front_info.get("gender"),
+        nationality=front_info.get("nationality", "Việt Nam"),
         place_of_origin=place_origin,
         place_of_residence=place_residence,
-        date_of_expiry=text_info.get("date_of_expiry"),
-        issue_date=qr_info.get("issue_date") if qr_info else None,
-        card_type=qr_info.get("card_type") if qr_info else text_info.get("card_type"),
+        date_of_expiry=date_of_expiry,
+        issue_date=issue_date,
+        place_of_issue=place_of_issue,
+        personal_identification=back_info.get("personal_identification"),
+        ethnicity=back_info.get("ethnicity"),
+        religion=back_info.get("religion"),
+        mrz=back_info.get("mrz"),
+        card_side=card_side,
+        card_type="can_cuoc_2024" if ("căn cước" in raw_ocr_text.lower() or "can cuoc" in raw_ocr_text.lower() or "identity card" in raw_ocr_text.lower()) and "công dân" not in raw_ocr_text.lower() and "cong dan" not in raw_ocr_text.lower() and "citizen" not in raw_ocr_text.lower() else (qr_info.get("card_type") if qr_info else front_info.get("card_type", "cccd_chip")),
         qr_data=QRData(
             scanned=qr_success,
             raw_qr=qr_raw if qr_success else None,
@@ -187,5 +273,66 @@ def process_cccd_image(image_input: Union[str, bytes, np.ndarray, Image.Image]) 
     )
 
     return final_data.dict()
+
+def process_cccd_both_sides(
+    front_input: Union[str, bytes, np.ndarray, Image.Image],
+    back_input: Union[str, bytes, np.ndarray, Image.Image]
+) -> Dict[str, Any]:
+    """
+    Xử lý đồng thời 2 mặt thẻ CCCD (Mặt trước + Mặt sau):
+    Tự động nhận diện và hoán đổi vị trí nếu người dùng gửi ngược mặt, sau đó hợp nhất dữ liệu hoàn chỉnh.
+    """
+    res1 = process_single_card_image(front_input)
+    res2 = process_single_card_image(back_input)
+
+    # Tự động xác định nếu gửi ngược ảnh (ảnh 1 là back, ảnh 2 là front)
+    if res1.get("card_side") == "back" and res2.get("card_side") in ["front", "both"]:
+        front_res, back_res = res2, res1
+    else:
+        front_res, back_res = res1, res2
+
+    merged = merge_cccd_results(front_res, back_res)
+    return CCCDData(**merged).dict()
+
+def process_cccd_image(
+    image_input: Union[str, bytes, np.ndarray, Image.Image],
+    back_input: Optional[Union[str, bytes, np.ndarray, Image.Image]] = None
+) -> Dict[str, Any]:
+    """
+    Hàm xử lý chính cho OCR CCCD:
+    - Nếu truyền cả 2 ảnh (image_input + back_input): Tự động quét 2 mặt và hợp nhất.
+    - Nếu truyền PDF có 2 trang trở lên: Tự động trích xuất trang 1 làm mặt trước, trang 2 làm mặt sau.
+    - Nếu truyền 1 ảnh đơn: Tự động trích xuất đầy đủ thông tin (kể cả ảnh ghép 2 mặt).
+    """
+    # Trường hợp truyền rõ ràng 2 ảnh mặt trước và mặt sau
+    if back_input is not None:
+        return process_cccd_both_sides(image_input, back_input)
+
+    # Kiểm tra nếu là file PDF nhiều trang
+    try:
+        if isinstance(image_input, str) and image_input.lower().endswith(".pdf"):
+            doc = fitz.open(image_input)
+            if len(doc) >= 2:
+                img1 = render_page_to_image(image_input, 0, dpi=300)
+                img2 = render_page_to_image(image_input, 1, dpi=300)
+                doc.close()
+                return process_cccd_both_sides(img1, img2)
+            doc.close()
+        elif isinstance(image_input, bytes) and image_input.startswith(b"%PDF"):
+            doc = fitz.open(stream=image_input, filetype="pdf")
+            if len(doc) >= 2:
+                p1 = doc[0].get_pixmap(dpi=300, alpha=False)
+                p2 = doc[1].get_pixmap(dpi=300, alpha=False)
+                img1 = Image.frombytes("RGB", [p1.width, p1.height], p1.samples)
+                img2 = Image.frombytes("RGB", [p2.width, p2.height], p2.samples)
+                doc.close()
+                return process_cccd_both_sides(img1, img2)
+            doc.close()
+    except Exception as e:
+        logger.warning(f"Không thể xử lý PDF nhiều trang: {e}")
+
+    # Mặc định xử lý ảnh đơn
+    return process_single_card_image(image_input)
+
 
 
