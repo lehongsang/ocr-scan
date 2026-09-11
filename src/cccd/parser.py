@@ -457,10 +457,12 @@ def parse_cccd_back_text(ocr_text: str) -> Dict[str, Any]:
 
     # 2. Nơi cấp / Cơ quan cấp (place_of_issue)
     authority_keywords = [
-        "bộ công an", "bo cong an", "ministry of public security", "ministryofpublic", "public security",
-        "cục trưởng", "cuc truong", "cục cảnh sát", "cuc canh sat",
-        "giám đốc công an", "giam doc cong an", "công an tỉnh", "cong an tinh",
-        "công an thành phố", "cong an thanh pho", "director general", "police department"
+        "bộ công an", "bo cong an", "bocongan", "ministry of public security", "ministryofpublic", "public security", "publicsecurity",
+        "cục trưởng", "cuc truong", "cuctruong", "cục cảnh sát", "cuc canh sat", "cuccanhsat", "cuctruongcuccanhsat",
+        "quan lý hành chính", "quan ly hanh chinh", "quanlyhanhchinh", "trật tự xã hội", "trat tu xa hoi", "trattuxahoi",
+        "giám đốc công an", "giam doc cong an", "giamdoccongan", "công an tỉnh", "cong an tinh",
+        "công an thành phố", "cong an thanh pho", "director general", "directorgeneral", "police department", "policedepartment",
+        "administrative management", "administrativemanagement"
     ]
 
     matched_auth_lines = []
@@ -470,16 +472,16 @@ def parse_cccd_back_text(ocr_text: str) -> Dict[str, Any]:
             candidate_auth = line
             if i + 1 < len(lines):
                 next_l = lines[i + 1].strip()
-                if any(k in next_l.lower() for k in ["hành chính", "trật tự xã hội", "dân cư", "quản lý", "cư trú", "security"]):
+                if any(k in next_l.lower() for k in ["hành chính", "hanhchinh", "trật tự", "trattu", "xã hội", "xahoi", "dân cư", "dancu", "quản lý", "quanly", "cư trú", "cutru", "security", "social"]):
                     candidate_auth = f"{candidate_auth} {next_l}"
             matched_auth_lines.append(candidate_auth)
 
     if matched_auth_lines:
         data["place_of_issue"] = correct_place_of_issue(matched_auth_lines[0])
     else:
-        if any("cảnh sát" in l.lower() or "canh sat" in l.lower() for l in lines):
+        if any("cảnh sát" in l.lower() or "canh sat" in l.lower() or "canhsat" in l.lower() for l in lines):
             data["place_of_issue"] = "CỤC TRƯỞNG CỤC CẢNH SÁT QUẢN LÝ HÀNH CHÍNH VỀ TRẬT TỰ XÃ HỘI"
-        elif any("công an" in l.lower() or "cong an" in l.lower() or "security" in l.lower() for l in lines):
+        elif any("công an" in l.lower() or "cong an" in l.lower() or "congan" in l.lower() or "security" in l.lower() for l in lines):
             data["place_of_issue"] = "BỘ CÔNG AN"
 
     # 3. Nơi đăng ký khai sinh & Nơi cư trú ở Mặt Sau (Thẻ Căn Cước 2024)
@@ -550,14 +552,31 @@ def parse_cccd_back_text(ocr_text: str) -> Dict[str, Any]:
                     raw_id_val = " ".join(ident_parts).strip()
                     # Chuẩn hóa các lỗi dính chữ OCR đặc thù của đặc điểm nhận dạng
                     clean_id = raw_id_val
-                    clean_id = re.sub(r'Notruoi|No\s*truoi', 'Nốt ruồi ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'C[.]?35cm|C35cm', 'C.3,5 cm ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'C[.]?1cm|C1cm', 'C.1 cm ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'duoitruoc', 'dưới trước ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'mepphai', 'mép phải ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'meptrai', 'mép trái ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'duoimattrai', 'dưới mắt trái ', clean_id, flags=re.IGNORECASE)
-                    clean_id = re.sub(r'duoimatphai', 'dưới mắt phải ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'notruoi|no\s*truoi|not\s*ruoi', 'Nốt ruồi ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'daumayphai|dau\s*may\s*phai|daumay\s*phai', 'đầu mày phải ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'daumaytrai|dau\s*may\s*trai|daumay\s*trai', 'đầu mày trái ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoimayphai|duoi\s*may\s*phai|duoimay\s*phai', 'đuôi mày phải ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoimaytrai|duoi\s*may\s*trai|duoimay\s*trai', 'đuôi mày trái ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoimatphai|duoi\s*mat\s*phai|duoimat\s*phai', 'dưới mắt phải ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoimattrai|duoi\s*mat\s*trai|duoimat\s*trai', 'dưới mắt trái ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'canhmuiphai|canh\s*mui\s*phai', 'cánh mũi phải ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'canhmuitrai|canh\s*mui\s*trai', 'cánh mũi trái ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'songmui|song\s*mui', 'sống mũi ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'mepphai|mep\s*phai', 'mép phải ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'meptrai|mep\s*trai', 'mép trái ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoitruoc|duoi\s*truoc', 'dưới trước ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoisau|duoi\s*sau', 'dưới sau ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'trentruoc|tren\s*truoc', 'trên trước ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'trensau|tren\s*sau', 'trên sau ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'daumay|dau\s*may', 'đầu mày ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoimay|duoi\s*may', 'đuôi mày ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'duoimat|duoi\s*mat', 'dưới mắt ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'C[.]?35cm|C35cm|C\.3,5cm|C\.3,5\s*cm', 'C.3,5 cm ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'C[.]?1cm|C1cm|C\.1cm', 'C.1 cm ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'C[.]?2cm|C2cm|C\.2cm', 'C.2 cm ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'C[.]?3cm|C3cm|C\.3cm', 'C.3 cm ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'C[.]?4cm|C4cm|C\.4cm', 'C.4 cm ', clean_id, flags=re.IGNORECASE)
+                    clean_id = re.sub(r'C[.]?5cm|C5cm|C\.5cm', 'C.5 cm ', clean_id, flags=re.IGNORECASE)
                     clean_id = re.sub(r'\b(?:Date|Ngày|Tháng|Năm|Cục|Giám|Bộ)\b.*$', '', clean_id, flags=re.IGNORECASE).strip()
                     clean_id = re.sub(r'\s+', ' ', clean_id).strip()
                     data["personal_identification"] = clean_id if len(clean_id) > 1 else None
