@@ -62,12 +62,12 @@
   },
   "C_BENH_LY_MAN_TINH_KEM_THEO": {
     "egfr": {
-      "type": "integer",
+      "type": "float",
       "unit": "mL/min/1.73m²",
       "description": "Độ thanh thải cầu thận (eGFR)"
     },
     "acr": {
-      "type": "integer",
+      "type": "float",
       "unit": "mg/g",
       "description": "Tỷ lệ Albumin/Creatinin (ACR)"
     },

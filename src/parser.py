@@ -2,7 +2,7 @@ import re
 import os
 import json
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from src.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS
 
 def convert_to_gemini_schema(schema_dict: dict) -> dict:
@@ -195,6 +195,67 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         pass
 
     return fill_missing_fields(regex_data, schema_dict)
+
+def calculate_acr(alb_val: float, alb_unit: str = "mg/L", cre_val: float = 0.0, cre_unit: str = "mmol/L") -> Optional[float]:
+    """
+    Tính toán tỷ lệ Albumin/Creatinin niệu (ACR) theo công thức chuẩn:
+    - Albumin (mg/L), Creatinin (g/L): ACR (mg/g) = Albumin ÷ Creatinin
+    - Albumin (mg/L), Creatinin (mmol/L): ACR (mg/g) = Albumin × 8.84 ÷ Creatinin
+    - Albumin (mg/L), Creatinin (mg/dL): ACR (mg/g) = Albumin × 100 ÷ Creatinin
+    - Albumin (mg/dL), Creatinin (mg/dL): ACR (mg/g) = Albumin × 1000 ÷ Creatinin
+    - Albumin (mg/L), Creatinin (µmol/L): ACR (mg/g) = Albumin × 8840 ÷ Creatinin
+    """
+    if not alb_val or not cre_val or cre_val <= 0:
+        return None
+
+    alb_u = (alb_unit or "mg/l").lower().strip()
+    cre_u = (cre_unit or "mmol/l").lower().strip()
+
+    if "mmol" in cre_u:
+        acr = (alb_val * 8.84) / cre_val
+    elif "µmol" in cre_u or "umol" in cre_u:
+        cre_mmol = cre_val / 1000.0
+        acr = (alb_val * 8.84) / cre_mmol if cre_mmol > 0 else 0
+    elif "g/l" in cre_u:
+        acr = alb_val / cre_val
+    elif "mg/dl" in cre_u:
+        if "mg/dl" in alb_u:
+            acr = (alb_val * 1000.0) / cre_val
+        else:
+            acr = (alb_val * 100.0) / cre_val
+    else:
+        # Mặc định quy đổi theo mmol/L nếu không nhận dạng được
+        acr = (alb_val * 8.84) / cre_val
+
+    return round(acr, 2)
+
+
+def calculate_egfr(scr_val: float, scr_unit: str = "µmol/L", age: int = None, gender: str = "Nam") -> Optional[float]:
+    """
+    Tính mức lọc cầu thận ước tính eGFR theo công thức CKD-EPI 2021:
+    eGFR = 142 × min(SCr/κ, 1)^α × max(SCr/κ, 1)^−1.200 × 0.9938^Tuổi × Hệ số giới
+    - SCr: Creatinin huyết thanh (mg/dL). Nếu µmol/L: SCr mg/dL = SCr µmol/L ÷ 88.4
+    - Nam: κ = 0.9, α = -0.302, hệ số giới = 1.0
+    - Nữ: κ = 0.7, α = -0.241, hệ số giới = 1.012
+    """
+    if not scr_val or scr_val <= 0 or not age or age < 18:
+        return None
+
+    scr_u = (scr_unit or "µmol/l").lower().strip()
+    if "µmol" in scr_u or "umol" in scr_u:
+        scr_mg_dl = scr_val / 88.4
+    else:
+        scr_mg_dl = scr_val
+
+    is_female = "nữ" in (gender or "").lower() or "female" in (gender or "").lower()
+    kappa = 0.7 if is_female else 0.9
+    alpha = -0.241 if is_female else -0.302
+    gender_factor = 1.012 if is_female else 1.0
+
+    scr_k = scr_mg_dl / kappa
+    egfr = 142 * (min(scr_k, 1.0) ** alpha) * (max(scr_k, 1.0) ** -1.200) * (0.9938 ** age) * gender_factor
+    return round(egfr, 1)
+
 
 def clean_value(val: str) -> str:
     """Dọn dẹp ký tự thừa."""
@@ -401,13 +462,59 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["A_CHI_SO_SINH_LY_CO_BAN"]["hdl_cholesterol"] = float(hdl_match.group(1))
 
     # --- 10. eGFR & ACR ---
-    egfr_match = re.search(r'(?:eGFR|Độ thanh thải cầu thận)[^\n]*\n(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+    # 10.1. Trích xuất eGFR trực tiếp nếu có
+    egfr_match = re.search(r'(?:eGFR|Độ thanh thải cầu thận|Mức lọc cầu thận eGFR)[^\n]*[=:]?\s*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
     if egfr_match:
-        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] = int(float(egfr_match.group(1)))
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] = float(egfr_match.group(1))
 
-    acr_match = re.search(r'(?:ACR|Tỷ lệ Albumin/Creatinin)[^\n]*\n(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+    # 10.2. Trích xuất ACR trực tiếp nếu có
+    acr_match = re.search(r'(?:ACR|Tỷ lệ Albumin/Creatinin)[^\n]*[=:]?\s*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
     if acr_match:
-        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"] = int(float(acr_match.group(1)))
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"] = float(acr_match.group(1))
+
+    # 10.3. Bóc tách Albumin niệu & Creatinin niệu để tự động tính ACR nếu chưa có
+    cre_u_match = re.search(r'(?:Creatinin niệu|Creatinin\s*\(niệu\)|Creatinine niệu)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)\s*\n?\s*(mmol/L|mg/dL|g/L|µmol/L|umol/L)?', text, re.IGNORECASE)
+    alb_u_match = re.search(r'(?:Albumin niệu|Microalbumin niệu|Albumin\s*\(niệu\)|Microalbumin)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)\s*\n?\s*(mg/L|mg/dL|g/L|µg/mL)?', text, re.IGNORECASE)
+
+    if alb_u_match and cre_u_match:
+        alb_val = float(alb_u_match.group(1))
+        alb_unit = alb_u_match.group(2) or "mg/L"
+        cre_val = float(cre_u_match.group(1))
+        cre_unit = cre_u_match.group(2) or "mmol/L"
+
+        calculated_acr = calculate_acr(alb_val, alb_unit, cre_val, cre_unit)
+        if calculated_acr is not None:
+            # Nếu chưa có acr hoặc ưu tiên giá trị tính từ xét nghiệm thực tế
+            result["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"] = calculated_acr
+
+    # 10.4. Tự động tính eGFR nếu chưa có từ Creatinin huyết thanh (máu) + Tuổi + Giới tính
+    if result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] is None:
+        cre_b_match = re.search(r'(?:Creatinin huyết thanh|Creatinin máu|SCr|Creatinin\*(?!\s*niệu))[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)\s*\n?\s*(µmol/L|umol/L|mg/dL)?', text, re.IGNORECASE)
+        if cre_b_match:
+            scr_val = float(cre_b_match.group(1))
+            scr_unit = cre_b_match.group(2) or "µmol/L"
+            age_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("tuoi")
+            gender_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("gioi_tinh") or "Nam"
+            calculated_egfr = calculate_egfr(scr_val, scr_unit, age_val, gender_val)
+            if calculated_egfr is not None:
+                result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] = calculated_egfr
+
+    # 10.5. Đánh giá tổn thương thận / vi đạm niệu dựa trên ACR hoặc Albumin niệu
+    current_acr = result["C_BENH_LY_MAN_TINH_KEM_THEO"].get("acr")
+    if current_acr is not None:
+        if current_acr >= 30:  # ACR >= 30 mg/g là có Microalbumin niệu (tiêu chuẩn y khoa)
+            result["TON_THUONG_CO_QUAN_DICH"]["albumin_microalbumin_nieu"] = True
+            result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+    elif alb_u_match:
+        alb_val = float(alb_u_match.group(1))
+        if alb_val >= 20:  # Albumin niệu >= 20-30 mg/L
+            result["TON_THUONG_CO_QUAN_DICH"]["albumin_microalbumin_nieu"] = True
+            result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
+    # Đánh giá suy giảm chức năng thận nếu eGFR < 60
+    current_egfr = result["C_BENH_LY_MAN_TINH_KEM_THEO"].get("egfr")
+    if current_egfr is not None and current_egfr < 60:
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 11. Huyết áp tâm thu SBP ---
     sbp_match = re.search(r'(?:Huyết áp tâm thu|SBP):\s*(\d+)', text, re.IGNORECASE)

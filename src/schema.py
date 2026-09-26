@@ -29,8 +29,8 @@ if HAS_PYDANTIC:
         ton_thuong_tham_lang_tren_nao: Optional[bool] = Field(None, description="Tổn thương thầm lặng trên não (Có/Không)")
 
     class BenhLyManTinhKemTheo(BaseModel):
-        egfr: Optional[int] = Field(None, description="Độ thanh thải cầu thận eGFR (mL/min/1.73m²)")
-        acr: Optional[int] = Field(None, description="Tỷ lệ Albumin/Creatinin ACR (mg/g)")
+        egfr: Optional[float] = Field(None, description="Độ thanh thải cầu thận eGFR (mL/min/1.73m²)")
+        acr: Optional[float] = Field(None, description="Tỷ lệ Albumin/Creatinin ACR (mg/g)")
         dai_thao_duong: Optional[bool] = Field(None, description="Đái tháo đường")
         dot_quy_nao: Optional[bool] = Field(None, description="Đột quỵ não")
         nhoi_mau_co_tim: Optional[bool] = Field(None, description="Nhồi máu cơ tim")
@@ -103,8 +103,8 @@ else:
 
     @dataclass
     class BenhLyManTinhKemTheo:
-        egfr: Optional[int] = None
-        acr: Optional[int] = None
+        egfr: Optional[float] = None
+        acr: Optional[float] = None
         dai_thao_duong: Optional[bool] = None
         dot_quy_nao: Optional[bool] = None
         nhoi_mau_co_tim: Optional[bool] = None
