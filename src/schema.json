@@ -40,6 +40,11 @@
       "unit": "mmol/L",
       "required": true,
       "description": "Chỉ số HDL-Cholesterol"
+    },
+    "non_hdl_cholesterol": {
+      "type": "float",
+      "unit": "mmol/L",
+      "description": "Chỉ số Non-HDL-Cholesterol (tự động tính = Cholesterol toàn phần - HDL-Cholesterol)"
     }
   },
   "TON_THUONG_CO_QUAN_DICH": {
@@ -110,6 +115,10 @@
     "tang_cholesterol_mau_gia_dinh": {
       "type": "boolean",
       "description": "Tăng Cholesterol máu gia đình"
+    },
+    "tang_huyet_ap": {
+      "type": "boolean",
+      "description": "Bệnh tăng huyết áp"
     }
   },
   "THONG_TIN_CA_NHAN": {

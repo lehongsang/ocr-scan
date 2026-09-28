@@ -21,6 +21,7 @@ if HAS_PYDANTIC:
         huyet_ap_tam_thu_sbp: Optional[int] = Field(None, description="Huyết áp tâm thu SBP (mmHg)")
         cholesterol_toan_phan: Optional[float] = Field(None, description="Cholesterol toàn phần (mmol/L)")
         hdl_cholesterol: Optional[float] = Field(None, description="HDL-Cholesterol (mmol/L)")
+        non_hdl_cholesterol: Optional[float] = Field(None, description="Non-HDL-Cholesterol (mmol/L)")
 
     class TonThuongCoQuanDich(BaseModel):
         phi_dai_that_trai: Optional[bool] = Field(None, description="Phì đại thất trái (Có/Không)")
@@ -41,6 +42,7 @@ if HAS_PYDANTIC:
         benh_mach_mau_ngoai_vi: Optional[bool] = Field(None, description="Bệnh mạch máu ngoại vi")
         vua_xo_mach_mau: Optional[bool] = Field(None, description="Vữa xơ mạch máu")
         tang_cholesterol_mau_gia_dinh: Optional[bool] = Field(None, description="Tăng Cholesterol máu gia đình")
+        tang_huyet_ap: Optional[bool] = Field(None, description="Tăng huyết áp")
 
     class ThongTinCaNhan(BaseModel):
         ho_va_ten: Optional[str] = Field(None, description="Họ và tên")
@@ -93,6 +95,7 @@ else:
         huyet_ap_tam_thu_sbp: Optional[int] = None
         cholesterol_toan_phan: Optional[float] = None
         hdl_cholesterol: Optional[float] = None
+        non_hdl_cholesterol: Optional[float] = None
 
     @dataclass
     class TonThuongCoQuanDich:
@@ -115,6 +118,7 @@ else:
         benh_mach_mau_ngoai_vi: Optional[bool] = None
         vua_xo_mach_mau: Optional[bool] = None
         tang_cholesterol_mau_gia_dinh: Optional[bool] = None
+        tang_huyet_ap: Optional[bool] = None
 
     @dataclass
     class ThongTinCaNhan:

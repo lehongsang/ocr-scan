@@ -63,23 +63,64 @@ def get_disease_only_schema(schema_dict: dict) -> dict:
                 mini_schema[section_name] = mini_fields
     return mini_schema
 
+def filter_confirmed_diagnoses(diagnostic_text: str):
+    """
+    Tách các mục bệnh lý trong chẩn đoán, loại bỏ các mục có tiền tố 'TD' (Theo dõi / Nghi ngờ).
+    Không đưa các bệnh theo dõi (TD) vào tiểu sử bệnh lý.
+    Trả về:
+    - filtered_text: chuỗi chẩn đoán đã lọc để gán vào tien_su_benh_ly
+    - confirmed_items: danh sách các mục bệnh lý đã xác định (confirmed)
+    """
+    if not diagnostic_text:
+        return "", []
+    
+    # Tách theo các dấu phân tách phổ biến: gạch ngang, chấm phẩy, phẩy, xuống dòng hoặc đánh số đầu mục
+    # Ví dụ: "Stent động mạch vành - TD suy tim - tăng huyết áp - rối loạn chuyển hóa lipid - TD bướu giáp"
+    raw_items = re.split(r'\s*(?:[-–—;,]|\b\d+[\.\)]\s*|\n)\s*', diagnostic_text)
+    
+    td_pattern = re.compile(
+        r'^(?:T[DĐdđ][\s\.\:\/\-]|T[DĐdđ]$|T\/[DĐdđ]|T\.[DĐdđ]|theo\s*dõi|theo\s*doi|nghi\s*ngờ|nghi\s*ngo)',
+        re.IGNORECASE
+    )
+    
+    confirmed_items = []
+    for item in raw_items:
+        item_clean = item.strip().strip(".-:,")
+        if not item_clean:
+            continue
+        if td_pattern.match(item_clean):
+            # Bệnh có tiền tố TD (theo dõi / nghi ngờ) -> bỏ qua không cho vào tiểu sử/tiền sử bệnh lý
+            continue
+        confirmed_items.append(item_clean)
+        
+    filtered_text = " - ".join(confirmed_items)
+    return filtered_text, confirmed_items
+
 def extract_diagnostic_text(text: str) -> str:
     """
     Trích xuất đoạn văn bản Chẩn đoán / Tiền sử bệnh ngắn để gửi cho Gemini API.
+    Đã lọc bỏ các mục chỉ là theo dõi (TD).
     """
     diag_match = re.search(
-        r'(?:Chẩn đoán|Chẩn đoán chính|Chẩn đoán sơ bộ|Tiền sử|Bệnh lý):\s*\n?\s*([^\n]+(?:\n[^\n]+){0,5})',
+        r'(?:Chẩn đoán(?:\s*kèm\s*theo|\s*chính|\s*sơ\s*bộ|\s*phụ)?|Tiền sử(?:\s*bệnh(?:\s*lý)?)?|Bệnh lý):\s*\n?\s*([^\n]+(?:\n[^\n]+){0,5})',
         text,
         re.IGNORECASE
     )
     if diag_match:
-        return clean_value(diag_match.group(0))
+        raw_diag = clean_value(diag_match.group(0))
+        header_match = re.match(r'^([^:]+:)\s*(.*)$', raw_diag)
+        if header_match:
+            header = header_match.group(1)
+            content = header_match.group(2)
+            filtered_content, _ = filter_confirmed_diagnoses(content)
+            return f"{header} {filtered_content}".strip()
+        return raw_diag
     
     # Fallback: lấy các dòng chứa từ khóa y khoa
     lines = text.split('\n')
     diag_lines = [
         l.strip() for l in lines 
-        if any(k in l.lower() for k in ["chẩn đoán", "tiền sử", "bệnh", "mạch", "tim", "xơ vữa", "tháo đường", "thận", "não", "vữa xơ"])
+        if any(k in l.lower() for k in ["chẩn đoán", "tiền sử", "bệnh", "mạch", "tim", "xơ vữa", "tháo đường", "thận", "não", "vữa xơ", "huyết áp"])
     ]
     if diag_lines:
         return " ".join(diag_lines[:5])
@@ -141,7 +182,7 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         return fill_missing_fields(regex_data, schema_dict)
 
     try:
-        # 2. Trích xuất đoạn chẩn đoán y khoa ngắn
+        # 2. Trích xuất đoạn chẩn đoán y khoa ngắn (đã lọc các mục TD)
         chandoan_text = extract_diagnostic_text(text)
         
         # 3. Tạo Schema thu gọn chỉ chứa các bệnh lý (boolean)
@@ -152,7 +193,9 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
         prompt = (
             "Bạn là chuyên gia y tế. Hãy phân tích đoạn chẩn đoán sau và xác định các bệnh lý có mặt "
-            "(gán true cho các bệnh lý thực sự được chẩn đoán):\n\n"
+            "(gán true cho các bệnh lý thực sự được chẩn đoán xác định).\n"
+            "LƯU Ý QUAN TRỌNG: Tuyệt đối KHÔNG gán true cho các bệnh có tiền tố 'TD', 'T/D', 'Theo dõi', 'Nghi ngờ' "
+            "(ví dụ: 'TD suy tim', 'TD bướu giáp' chỉ là theo dõi/nghi ngờ nên phải đặt false).\n\n"
             f"VĂN BẢN CHẨN ĐOÁN:\n{chandoan_text}"
         )
         
@@ -279,7 +322,8 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
             "hut_thuoc_la": False,
             "huyet_ap_tam_thu_sbp": None,
             "cholesterol_toan_phan": None,
-            "hdl_cholesterol": None
+            "hdl_cholesterol": None,
+            "non_hdl_cholesterol": None
         },
         "TON_THUONG_CO_QUAN_DICH": {
             "phi_dai_that_trai": False,
@@ -299,7 +343,8 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
             "hoi_chung_vanh_cap": False,
             "thieu_mau_cuc_bo_nao_thoang_qua_tia": False,
             "benh_mach_mau_ngoai_vi": False,
-            "tang_cholesterol_mau_gia_dinh": False
+            "tang_cholesterol_mau_gia_dinh": False,
+            "tang_huyet_ap": False
         },
         "THONG_TIN_CA_NHAN": {
             "ho_va_ten": None,
@@ -406,50 +451,75 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["CHI_SO_AND_TIEN_SU_SUC_KHOE"]["can_nang"] = int(weight_match.group(1))
 
     # --- 7. Chẩn đoán (Tiền sử bệnh lý) ---
-    diag_match = re.search(r'Chẩn đoán:\s*\n?\s*([^\n]+)', text, re.IGNORECASE)
+    diag_match = re.search(r'(?:Chẩn đoán(?:\s*kèm\s*theo|\s*chính|\s*sơ\s*bộ|\s*phụ)?|Tiền sử(?:\s*bệnh(?:\s*lý)?)?|Bệnh lý):\s*\n?\s*([^\n]+)', text, re.IGNORECASE)
     diagnostics = ""
+    confirmed_items = []
     if diag_match:
         diagnostics = clean_value(diag_match.group(1))
-        result["CHI_SO_AND_TIEN_SU_SUC_KHOE"]["tien_su_benh_ly"] = diagnostics
+        # Lọc bỏ các bệnh lý có tiền tố TD (theo dõi / nghi ngờ) khỏi tiền sử bệnh lý
+        filtered_diagnostics, confirmed_items = filter_confirmed_diagnoses(diagnostics)
+        result["CHI_SO_AND_TIEN_SU_SUC_KHOE"]["tien_su_benh_ly"] = filtered_diagnostics if filtered_diagnostics else None
 
-    # Phân tích từ chẩn đoán để xác định bệnh lý mãn tính
-    diag_lower = diagnostics.lower()
+    # Phân tích từ các bệnh lý đã xác định (không chứa tiền tố TD) để xác định cờ bệnh mạn tính
+    confirmed_str = " ; ".join(confirmed_items).lower()
     
+    # Tăng huyết áp
+    if any(k in confirmed_str for k in ["tăng huyết áp", "tang huyet ap", "cao huyết áp", "cao huyet ap", "huyết áp cao", "hypertension"]) or re.search(r'\btha\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_huyet_ap"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
     # Vữa xơ mạch máu
-    if any(k in diag_lower for k in ["xơ vữa", "xo vua", "vữa xơ", "vữa sơ"]):
+    if any(k in confirmed_str for k in ["xơ vữa", "xo vua", "vữa xơ", "vua xo", "vữa sơ", "vua so", "rối loạn chuyển hóa lipid", "rối loạn lipid", "dyslipidemia"]):
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["vua_xo_mach_mau"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
         
     # Đái tháo đường
-    if any(k in diag_lower for k in ["đái tháo đường", "đái đường", "tiểu đường", "diabetes"]):
+    if any(k in confirmed_str for k in ["đái tháo đường", "dai thao duong", "đái đường", "dai duong", "tiểu đường", "tieu duong", "diabetes"]) or re.search(r'\b(?:đtđ|dtd)\b', confirmed_str):
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["dai_thao_duong"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # Đột quỵ
-    if any(k in diag_lower for k in ["đột quỵ", "tai biến mạch máu não", "stroke"]):
+    if any(k in confirmed_str for k in ["đột quỵ", "dot quy", "tai biến mạch máu não", "tai bien mach mau nao", "stroke", "nhồi máu não", "nhoi mau nao", "xuất huyết não", "xuat huyet nao"]):
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["dot_quy_nao"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # Nhồi máu cơ tim
-    if "nhồi máu cơ tim" in diag_lower:
+    if any(k in confirmed_str for k in ["nhồi máu cơ tim", "nhoi mau co tim"]) or re.search(r'\b(?:mi|stemi|nstemi)\b', confirmed_str):
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["nhoi_mau_co_tim"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
-    # Bệnh mạch vành
-    if any(k in diag_lower for k in ["mạch vành", "cơn đau thắt ngực", "ngực crnn"]):
+    # Bệnh mạch vành / Stent động mạch vành
+    if any(k in confirmed_str for k in ["mạch vành", "mach vanh", "cơn đau thắt ngực", "ngực crnn", "stent", "đặt stent", "can thiệp vành", "cad"]):
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["benh_ly_mach_vanh"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
+    # Hội chứng vành cấp
+    if any(k in confirmed_str for k in ["hội chứng vành cấp", "hoi chung vanh cap"]) or re.search(r'\bacs\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["hoi_chung_vanh_cap"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
+    # Thiếu máu não thoáng qua (TIA)
+    if any(k in confirmed_str for k in ["thiếu máu cục bộ não thoáng qua", "thieu mau cuc bo nao thoang qua", "thiếu máu não thoáng qua", "thieu mau nao thoang qua"]) or re.search(r'\btia\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["thieu_mau_cuc_bo_nao_thoang_qua_tia"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
+    # Phình động mạch chủ
+    if any(k in confirmed_str for k in ["phình động mạch chủ", "phinh dong mach chu", "phình đmc"]) or re.search(r'\baaa\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["phinh_dong_mach_chu"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
+    # Bệnh mạch máu ngoại vi
+    if any(k in confirmed_str for k in ["mạch máu ngoại vi", "mach mau ngoai vi", "mạch ngoại biên", "mach ngoai bien"]) or re.search(r'\bpad\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["benh_mach_mau_ngoai_vi"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
         
     # Suy thận
-    if "suy thận" in diag_lower:
+    if any(k in confirmed_str for k in ["suy thận", "suy than", "bệnh thận mạn", "benh than man"]) or re.search(r'\bckd\b', confirmed_str):
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 8. Cholesterol toàn phần ---
-    # Thường ở dạng:
-    # Cholesterol toàn phần*
-    # [H hoặc L hoặc rỗng]
-    # 6.15
-    chol_match = re.search(r'Cholesterol toàn phần[^\n]*\n(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+    # Thường ở dạng: Cholesterol toàn phần*, Total Cholesterol, v.v.
+    chol_match = re.search(r'(?:Cholesterol\s*toàn\s*phần|Total\s*Cholesterol|Cholesterol\*(?!\s*niệu)|Cholesterol\b(?!\s*[\-\.]?\s*HDL|\s*[\-\.]?\s*LDL|\s*[\-\.]?\s*VLDL))[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
     if chol_match:
         val = float(chol_match.group(1))
         result["A_CHI_SO_SINH_LY_CO_BAN"]["cholesterol_toan_phan"] = val
@@ -457,9 +527,17 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
             result["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_cholesterol_mau_gia_dinh"] = True
 
     # --- 9. HDL-Cholesterol ---
-    hdl_match = re.search(r'HDL(?:-|\s*)Cholesterol[^\n]*\n(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+    hdl_match = re.search(r'(?:HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
     if hdl_match:
         result["A_CHI_SO_SINH_LY_CO_BAN"]["hdl_cholesterol"] = float(hdl_match.group(1))
+
+    # --- 9.1. Non-HDL-Cholesterol (Tự động tính = Cholesterol toàn phần - HDL-Cholesterol) ---
+    chol_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("cholesterol_toan_phan")
+    hdl_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("hdl_cholesterol")
+    if chol_val is not None and hdl_val is not None:
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["non_hdl_cholesterol"] = round(chol_val - hdl_val, 2)
+    else:
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["non_hdl_cholesterol"] = None
 
     # --- 10. eGFR & ACR ---
     # 10.1. Trích xuất eGFR trực tiếp nếu có
@@ -519,7 +597,11 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
     # --- 11. Huyết áp tâm thu SBP ---
     sbp_match = re.search(r'(?:Huyết áp tâm thu|SBP):\s*(\d+)', text, re.IGNORECASE)
     if sbp_match:
-        result["A_CHI_SO_SINH_LY_CO_BAN"]["huyet_ap_tam_thu_sbp"] = int(sbp_match.group(1))
+        sbp_val = int(sbp_match.group(1))
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["huyet_ap_tam_thu_sbp"] = sbp_val
+        if sbp_val >= 140:
+            result["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_huyet_ap"] = True
+            result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 12. Mã nhóm chăm sóc ---
     care_match = re.search(r'(?:Care Group Code|Mã nhóm chăm sóc):\s*([a-zA-Z0-9]+)', text, re.IGNORECASE)

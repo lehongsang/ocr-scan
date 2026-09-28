@@ -18,6 +18,7 @@ Dưới đây là bảng tổng hợp các trường thông tin y tế được 
 | **Huyết áp tâm thu (SBP)** | Huyết áp tâm thu | mmHg | Có | `145` |
 | **Cholesterol toàn phần** | Hàm lượng Cholesterol toàn phần | mmol/L | Có | `7.0` |
 | **HDL-Cholesterol** | Hàm lượng HDL-Cholesterol | mmol/L | Có | `1.5` |
+| **Non-HDL-Cholesterol** | Tự động tính = Cholesterol toàn phần - HDL | mmol/L | Không | `5.5` |
 
 ---
 
@@ -46,6 +47,7 @@ Dưới đây là bảng tổng hợp các trường thông tin y tế được 
 | **Bệnh mạch máu ngoại vi** | Bệnh mạch máu ngoại biên | `Có` / `Không` | `Không` |
 | **Vữa xơ mạch máu** | Xơ vữa động mạch | `Có` / `Không` | `Không` |
 | **Tăng Cholesterol máu gia đình** | Tăng cholesterol gia truyền | `Có` / `Không` | `Không` |
+| **Tăng huyết áp** | Bệnh tăng huyết áp | `Có` / `Không` | `Không` |
 
 ---
 
