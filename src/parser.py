@@ -4,6 +4,7 @@ import json
 import requests
 from typing import Dict, Any, Optional
 from src.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS
+from src.calculators import calculate_egfr, calculate_acr
 
 def convert_to_gemini_schema(schema_dict: dict) -> dict:
     """
