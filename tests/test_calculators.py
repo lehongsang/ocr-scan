@@ -66,6 +66,7 @@ class TestKidneyCalculators(unittest.TestCase):
             self.assertEqual(res["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"], 10.05)
             # Kiểm tra thông tin bệnh nhân
             self.assertEqual(res["THONG_TIN_CA_NHAN"]["ho_va_ten"], "NGUYỄN THỊ HỒNG")
+            self.assertEqual(res["THONG_TIN_CA_NHAN"]["ma_benh_nhan"], "BN000802016")
             self.assertEqual(res["THONG_TIN_CA_NHAN"]["gioi_tinh"], "Nữ")
             self.assertEqual(res["A_CHI_SO_SINH_LY_CO_BAN"]["tuoi"], 70)
 

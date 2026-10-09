@@ -349,6 +349,7 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         },
         "THONG_TIN_CA_NHAN": {
             "ho_va_ten": None,
+            "ma_benh_nhan": None,
             "ngay_sinh": None,
             "gioi_tinh": None,
             "cccd_cmnd": None,
@@ -373,18 +374,30 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         }
     }
 
-    # --- 1. Họ và tên ---
-    name_match = re.search(r'(?:Họ và tên|Họ tên):\s*([^\n]+)', text, re.IGNORECASE)
+    # --- 1. Họ và tên & Mã bệnh nhân ---
+    name_match = re.search(r'(?:Họ và tên|Họ tên|Tên bệnh nhân):\s*([^\n]+)', text, re.IGNORECASE)
     if name_match:
         result["THONG_TIN_CA_NHAN"]["ho_va_ten"] = clean_value(name_match.group(1))
     else:
         # Fallback tìm kiếm dòng đầu tiên dạng chữ IN HOA tên bệnh nhân (Ví dụ: NGUYỄN THỊ HỢP - BN000801164)
         first_lines = text.split('\n')[:5]
         for line in first_lines:
-            match = re.match(r'^([A-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝĂĐĨŨƠƯ\s]+)(?:\s+-\s+BN\d+)?$', line.strip())
+            match = re.match(r'^([A-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝĂĐĨŨƠƯ\s]+)(?:\s*-\s*(BN\d+))?$', line.strip())
             if match:
                 result["THONG_TIN_CA_NHAN"]["ho_va_ten"] = clean_value(match.group(1))
+                if match.group(2):
+                    result["THONG_TIN_CA_NHAN"]["ma_benh_nhan"] = clean_value(match.group(2))
                 break
+
+    # Trích xuất Mã bệnh nhân nếu có trường riêng (ví dụ: "Mã BN: BN000802016", "Mã bệnh nhân: 123456")
+    bn_match = re.search(r'(?:Mã\s*(?:số\s*)?(?:BN|bệnh\s*nhân|người\s*bệnh)|Mã\s*BN):\s*([A-Za-z0-9]+)', text, re.IGNORECASE)
+    if bn_match:
+        result["THONG_TIN_CA_NHAN"]["ma_benh_nhan"] = clean_value(bn_match.group(1))
+    elif not result["THONG_TIN_CA_NHAN"]["ma_benh_nhan"]:
+        # Fallback tìm mã dạng BN + số (ví dụ: BN000802016) trong toàn bộ văn bản
+        bn_code_match = re.search(r'\b(BN\d{6,12})\b', text)
+        if bn_code_match:
+            result["THONG_TIN_CA_NHAN"]["ma_benh_nhan"] = bn_code_match.group(1)
 
     # --- 2. Giới tính ---
     gender_match = re.search(r'(?:GT|Giới tính):\s*(Nam|Nữ|N\u1eef|Khác)', text, re.IGNORECASE)

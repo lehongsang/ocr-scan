@@ -127,6 +127,10 @@
       "required": true,
       "description": "Họ và tên bệnh nhân"
     },
+    "ma_benh_nhan": {
+      "type": "string",
+      "description": "Mã số bệnh nhân (vd: BN000802016)"
+    },
     "ngay_sinh": {
       "type": "string",
       "format": "dd/mm/yyyy",

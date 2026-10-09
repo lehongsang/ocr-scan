@@ -55,6 +55,7 @@ Dưới đây là bảng tổng hợp các trường thông tin y tế được 
 | Tên Trường | Mô tả | Định dạng / Lựa chọn | Bắt buộc | Ví dụ mẫu |
 | :--- | :--- | :--- | :---: | :--- |
 | **Họ và tên** | Tên đầy đủ bệnh nhân | Chữ | Có | `Nguyễn Văn A` |
+| **Mã bệnh nhân** | Mã số bệnh nhân | Chữ / Số | Không | `BN000802016` |
 | **Ngày sinh** | Ngày tháng năm sinh | `dd/mm/yyyy` | Không | `21/07/2000` |
 | **Giới tính** | Giới tính mở rộng | `Nam` / `Nữ` / `Khác` | Không | `Nam` |
 | **CCCD/CMND** | Số căn cước / định danh | Số / Chữ | Không | `012345678901` |

@@ -46,6 +46,7 @@ if HAS_PYDANTIC:
 
     class ThongTinCaNhan(BaseModel):
         ho_va_ten: Optional[str] = Field(None, description="Họ và tên")
+        ma_benh_nhan: Optional[str] = Field(None, description="Mã số bệnh nhân")
         ngay_sinh: Optional[str] = Field(None, description="Ngày sinh (dd/mm/yyyy)")
         gioi_tinh: Optional[str] = Field(None, description="Giới tính (Nam/Nữ/Khác)")
         cccd_cmnd: Optional[str] = Field(None, description="CCCD/CMND (mã số định danh)")
@@ -123,6 +124,7 @@ else:
     @dataclass
     class ThongTinCaNhan:
         ho_va_ten: Optional[str] = None
+        ma_benh_nhan: Optional[str] = None
         ngay_sinh: Optional[str] = None
         gioi_tinh: Optional[str] = None
         cccd_cmnd: Optional[str] = None
