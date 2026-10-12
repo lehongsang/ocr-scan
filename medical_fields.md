@@ -37,7 +37,9 @@ Dưới đây là bảng tổng hợp các trường thông tin y tế được 
 | :--- | :--- | :--- | :--- |
 | **Độ thanh thải cầu thận (eGFR)** | eGFR | mL/min/1.73m² | `35` |
 | **Tỷ lệ Albumin/Creatinin (ACR)** | ACR | mg/g | `15` |
+| **Suy thận** | Bệnh suy thận / Bệnh thận mạn | `Có` / `Không` | `Không` |
 | **Đái tháo đường (Diabetes)** | Bệnh tiểu đường | `Có` / `Không` | `Không` |
+| **Rối loạn chuyển hoá mỡ máu** | Rối loạn lipid máu | `Có` / `Không` | `Không` |
 | **Đột quỵ não (Stroke)** | Bệnh tai biến mạch máu não | `Có` / `Không` | `Không` |
 | **Nhồi máu cơ tim** | Bệnh tim | `Có` / `Không` | `Không` |
 | **Hội chứng vành cấp** | Hội chứng mạch vành cấp | `Có` / `Không` | `Không` |

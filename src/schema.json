@@ -76,9 +76,17 @@
       "unit": "mg/g",
       "description": "Tỷ lệ Albumin/Creatinin (ACR)"
     },
+    "suy_than": {
+      "type": "boolean",
+      "description": "Bệnh suy thận / Bệnh thận mạn"
+    },
     "dai_thao_duong": {
       "type": "boolean",
       "description": "Bệnh đái tháo đường (Diabetes)"
+    },
+    "roi_loan_chuyen_hoa_mo_mau": {
+      "type": "boolean",
+      "description": "Rối loạn chuyển hoá mỡ máu (Rối loạn lipid máu)"
     },
     "nhoi_mau_co_tim": {
       "type": "boolean",

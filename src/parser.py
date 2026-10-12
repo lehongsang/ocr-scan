@@ -335,7 +335,9 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         "C_BENH_LY_MAN_TINH_KEM_THEO": {
             "egfr": None,
             "acr": None,
+            "suy_than": False,
             "dai_thao_duong": False,
+            "roi_loan_chuyen_hoa_mo_mau": False,
             "nhoi_mau_co_tim": False,
             "benh_ly_mach_vanh": False,
             "phinh_dong_mach_chu": False,
@@ -483,8 +485,13 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # Vữa xơ mạch máu
-    if any(k in confirmed_str for k in ["xơ vữa", "xo vua", "vữa xơ", "vua xo", "vữa sơ", "vua so", "rối loạn chuyển hóa lipid", "rối loạn lipid", "dyslipidemia"]):
+    if any(k in confirmed_str for k in ["xơ vữa", "xo vua", "vữa xơ", "vua xo", "vữa sơ", "vua so", "atherosclerosis"]):
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["vua_xo_mach_mau"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
+    # Rối loạn chuyển hoá mỡ máu (Rối loạn lipid máu)
+    if any(k in confirmed_str for k in ["rối loạn chuyển hóa mỡ máu", "rối loạn chuyển hoá mỡ máu", "rối loạn mỡ máu", "roi loan mo mau", "rối loạn chuyển hóa lipid", "rối loạn chuyển hoá lipid", "rối loạn lipid", "roi loan lipid", "tăng lipid máu", "tang lipid mau", "dyslipidemia", "hyperlipidemia"]):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["roi_loan_chuyen_hoa_mo_mau"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
         
     # Đái tháo đường
@@ -529,6 +536,7 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         
     # Suy thận
     if any(k in confirmed_str for k in ["suy thận", "suy than", "bệnh thận mạn", "benh than man"]) or re.search(r'\bckd\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["suy_than"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 8. Cholesterol toàn phần ---
@@ -606,6 +614,7 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
     # Đánh giá suy giảm chức năng thận nếu eGFR < 60
     current_egfr = result["C_BENH_LY_MAN_TINH_KEM_THEO"].get("egfr")
     if current_egfr is not None and current_egfr < 60:
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["suy_than"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 11. Huyết áp tâm thu SBP ---

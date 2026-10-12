@@ -33,6 +33,8 @@ if HAS_PYDANTIC:
         egfr: Optional[float] = Field(None, description="Độ thanh thải cầu thận eGFR (mL/min/1.73m²)")
         acr: Optional[float] = Field(None, description="Tỷ lệ Albumin/Creatinin ACR (mg/g)")
         dai_thao_duong: Optional[bool] = Field(None, description="Đái tháo đường")
+        suy_than: Optional[bool] = Field(None, description="Suy thận")
+        roi_loan_chuyen_hoa_mo_mau: Optional[bool] = Field(None, description="Rối loạn chuyển hoá mỡ máu")
         dot_quy_nao: Optional[bool] = Field(None, description="Đột quỵ não")
         nhoi_mau_co_tim: Optional[bool] = Field(None, description="Nhồi máu cơ tim")
         hoi_chung_vanh_cap: Optional[bool] = Field(None, description="Hội chứng vành cấp")
@@ -110,6 +112,8 @@ else:
         egfr: Optional[float] = None
         acr: Optional[float] = None
         dai_thao_duong: Optional[bool] = None
+        suy_than: Optional[bool] = None
+        roi_loan_chuyen_hoa_mo_mau: Optional[bool] = None
         dot_quy_nao: Optional[bool] = None
         nhoi_mau_co_tim: Optional[bool] = None
         hoi_chung_vanh_cap: Optional[bool] = None
