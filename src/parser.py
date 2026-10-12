@@ -544,14 +544,17 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["C_BENH_LY_MAN_TINH_KEM_THEO"]["suy_than"] = True
         result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
+    # Tăng Cholesterol máu gia đình
+    if any(k in confirmed_str for k in ["tăng cholesterol máu gia đình", "tang cholesterol mau gia dinh", "tăng cholesterol gia đình", "tang cholesterol gia dinh", "cholesterol gia đình"]) or re.search(r'\bfh\b', confirmed_str):
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_cholesterol_mau_gia_dinh"] = True
+        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
+
     # --- 8. Cholesterol toàn phần ---
     # Thường ở dạng: Cholesterol toàn phần*, Total Cholesterol, v.v.
     chol_match = re.search(r'(?:Cholesterol\s*toàn\s*phần|Total\s*Cholesterol|Cholesterol\*(?!\s*niệu)|Cholesterol\b(?!\s*[\-\.]?\s*HDL|\s*[\-\.]?\s*LDL|\s*[\-\.]?\s*VLDL))[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
     if chol_match:
         val = float(chol_match.group(1))
         result["A_CHI_SO_SINH_LY_CO_BAN"]["cholesterol_toan_phan"] = val
-        if val > 5.2:
-            result["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_cholesterol_mau_gia_dinh"] = True
 
     # --- 9. HDL-Cholesterol ---
     hdl_match = re.search(r'(?:HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
@@ -616,20 +619,11 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
             result["TON_THUONG_CO_QUAN_DICH"]["albumin_microalbumin_nieu"] = True
             result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
-    # Đánh giá suy giảm chức năng thận nếu eGFR < 60
-    current_egfr = result["C_BENH_LY_MAN_TINH_KEM_THEO"].get("egfr")
-    if current_egfr is not None and current_egfr < 60:
-        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["suy_than"] = True
-        result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
-
     # --- 11. Huyết áp tâm thu SBP ---
     sbp_match = re.search(r'(?:Huyết áp tâm thu|SBP):\s*(\d+)', text, re.IGNORECASE)
     if sbp_match:
         sbp_val = int(sbp_match.group(1))
         result["A_CHI_SO_SINH_LY_CO_BAN"]["huyet_ap_tam_thu_sbp"] = sbp_val
-        if sbp_val >= 140:
-            result["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_huyet_ap"] = True
-            result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 12. Mã nhóm chăm sóc ---
     care_match = re.search(r'(?:Care Group Code|Mã nhóm chăm sóc):\s*([a-zA-Z0-9]+)', text, re.IGNORECASE)
