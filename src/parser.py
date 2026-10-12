@@ -467,11 +467,16 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["CHI_SO_AND_TIEN_SU_SUC_KHOE"]["can_nang"] = int(weight_match.group(1))
 
     # --- 7. Chẩn đoán (Tiền sử bệnh lý) ---
-    diag_match = re.search(r'(?:Chẩn đoán(?:\s*kèm\s*theo|\s*chính|\s*sơ\s*bộ|\s*phụ)?|Tiền sử(?:\s*bệnh(?:\s*lý)?)?|Bệnh lý):\s*\n?\s*([^\n]+)', text, re.IGNORECASE)
+    diag_match = re.search(
+        r'(?:Chẩn đoán(?:\s*kèm\s*theo|\s*chính|\s*sơ\s*bộ|\s*phụ)?|Tiền sử(?:\s*bệnh(?:\s*lý)?)?|Bệnh lý):\s*\n?\s*([^\n]+(?:\n(?!(?:Thời gian|Người|Bác sĩ|KTV|Khoa|Khám|Mã|Ngày|Ket luan|Kết luận|\d+\.))[^\n]+){0,3})',
+        text,
+        re.IGNORECASE
+    )
     diagnostics = ""
     confirmed_items = []
     if diag_match:
-        diagnostics = clean_value(diag_match.group(1))
+        raw_val = re.sub(r'\s*\n\s*', ' ', diag_match.group(1))
+        diagnostics = clean_value(raw_val)
         # Lọc bỏ các bệnh lý có tiền tố TD (theo dõi / nghi ngờ) khỏi tiền sử bệnh lý
         filtered_diagnostics, confirmed_items = filter_confirmed_diagnoses(diagnostics)
         result["CHI_SO_AND_TIEN_SU_SUC_KHOE"]["tien_su_benh_ly"] = filtered_diagnostics if filtered_diagnostics else None
