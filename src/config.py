@@ -24,12 +24,16 @@ if (not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_API_KEY") and os.path.exists(_
     except Exception:
         pass
 
-# Đường dẫn URL API của Gemini (tối ưu tốc độ sinh token: gemini-3.5-flash-lite)
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent"
+# Model Gemini mặc định (gemini-3.8-flash hoặc cấu hình từ môi trường)
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-3.8-flash")
+
+# Đường dẫn URL API của Gemini
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Cấu hình tham số sinh tối ưu
-GEMINI_TEMPERATURE = 0.0
-GEMINI_MAX_OUTPUT_TOKENS = 512
+GEMINI_TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", 0.0))
+GEMINI_MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", 4096))
 
 # Lựa chọn Engine OCR: "rapidocr" hoặc "tesseract"
 OCR_ENGINE = os.environ.get("OCR_ENGINE", "rapidocr")

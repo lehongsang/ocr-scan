@@ -99,26 +99,147 @@ def ocr_pdf_parallel(pdf_path: str, dpi: int = PDF_RENDER_DPI, lang: str = OCR_L
             
     return results
 
-def ocr_image_file(image_path: str, lang: str = OCR_LANG, tesseract_cmd: str = TESSERACT_CMD, engine_type: str = OCR_ENGINE) -> str:
+import io
+import time
+from typing import List, Dict, Any, Tuple, Optional
+from src.gemini_vision import ocr_image_gemini
+
+def ocr_image_bytes(
+    image_bytes: bytes,
+    filename: str = "",
+    lang: str = OCR_LANG,
+    tesseract_cmd: str = TESSERACT_CMD,
+    engine_type: str = "gemini",
+    prompt: Optional[str] = None
+) -> str:
     """
-    Thực hiện OCR trực tiếp trên một file ảnh (PNG, JPG, v.v.) thay vì file PDF.
+    Thực hiện OCR trực tiếp trên dữ liệu byte của ảnh (hỗ trợ gemini, rapidocr, tesseract).
+    """
+    engine_lower = (engine_type or "gemini").lower()
+    
+    if engine_lower == "gemini":
+        return ocr_image_gemini(image_bytes=image_bytes, filename=filename, prompt=prompt)
+    
+    # Đối với các engine cục bộ (RapidOCR / Tesseract)
+    img = Image.open(io.BytesIO(image_bytes))
+    if engine_lower == "rapidocr":
+        engine = get_rapid_ocr_engine()
+        img_np = np.array(img.convert("RGB"))
+        result, _ = engine(img_np)
+        if result:
+            return "\n".join([line[1] for line in result]).strip()
+        return ""
+    else:  # tesseract
+        if tesseract_cmd and tesseract_cmd != "tesseract":
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        img_gray = img.convert('L')
+        custom_config = '--psm 3'
+        text = pytesseract.image_to_string(img_gray, lang=lang, config=custom_config)
+        return text.strip()
+
+def ocr_image_file(
+    image_path: str,
+    lang: str = OCR_LANG,
+    tesseract_cmd: str = TESSERACT_CMD,
+    engine_type: str = OCR_ENGINE,
+    prompt: Optional[str] = None
+) -> str:
+    """
+    Thực hiện OCR trực tiếp trên một file ảnh (PNG, JPG, v.v.)
     """
     try:
-        img = Image.open(image_path)
-        if engine_type == "rapidocr":
-            engine = get_rapid_ocr_engine()
-            img_np = np.array(img)
-            result, _ = engine(img_np)
-            if result:
-                return "\n".join([line[1] for line in result]).strip()
-            return ""
-        else:
-            if tesseract_cmd and tesseract_cmd != "tesseract":
-                pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-            img_gray = img.convert('L')
-            custom_config = '--psm 3'
-            text = pytesseract.image_to_string(img_gray, lang=lang, config=custom_config)
-            return text.strip()
+        with open(image_path, "rb") as f:
+            data = f.read()
+        return ocr_image_bytes(
+            image_bytes=data,
+            filename=image_path,
+            lang=lang,
+            tesseract_cmd=tesseract_cmd,
+            engine_type=engine_type,
+            prompt=prompt
+        )
     except Exception as e:
         logger.error(f"Lỗi OCR file ảnh {image_path}: {e}")
         return f"[Lỗi OCR File Ảnh]: {str(e)}"
+
+def ocr_multiple_images(
+    image_items: List[Tuple[str, bytes]],
+    engine_type: str = "gemini",
+    prompt: Optional[str] = None,
+    lang: str = OCR_LANG,
+    tesseract_cmd: str = TESSERACT_CMD,
+    max_workers: int = 5
+) -> Dict[str, Any]:
+    """
+    Thực hiện OCR song song danh sách nhiều ảnh tải lên (multi-image).
+    
+    Args:
+        image_items: Danh sách các tuple (filename, image_bytes).
+        engine_type: "gemini", "rapidocr", hoặc "tesseract".
+        prompt: Hướng dẫn tùy chỉnh cho Gemini Vision.
+        max_workers: Số luồng xử lý song song.
+    
+    Returns:
+        Dict chứa kết quả từng ảnh và văn bản tổng hợp.
+    """
+    if not image_items:
+        return {"total_images": 0, "results": [], "combined_text": ""}
+
+    def _worker(idx: int, fname: str, bts: bytes) -> Dict[str, Any]:
+        t0 = time.time()
+        try:
+            text = ocr_image_bytes(
+                image_bytes=bts,
+                filename=fname,
+                lang=lang,
+                tesseract_cmd=tesseract_cmd,
+                engine_type=engine_type,
+                prompt=prompt
+            )
+            elapsed = round(time.time() - t0, 3)
+            return {
+                "page_index": idx + 1,
+                "filename": fname,
+                "status": "success",
+                "char_count": len(text),
+                "execution_time_seconds": elapsed,
+                "text": text
+            }
+        except Exception as e:
+            elapsed = round(time.time() - t0, 3)
+            logger.error(f"Lỗi OCR ảnh '{fname}': {e}")
+            return {
+                "page_index": idx + 1,
+                "filename": fname,
+                "status": "error",
+                "error_message": str(e),
+                "execution_time_seconds": elapsed,
+                "text": ""
+            }
+
+    workers = min(len(image_items), max_workers, 10)
+    results = [None] * len(image_items)
+    
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_worker, i, fname, bts): i
+            for i, (fname, bts) in enumerate(image_items)
+        }
+        for fut in futures:
+            idx = futures[fut]
+            results[idx] = fut.result()
+
+    # Gộp văn bản theo thứ tự ảnh
+    combined_parts = []
+    for item in results:
+        header = f"=== TRANG {item['page_index']}: {item['filename']} ==="
+        combined_parts.append(f"{header}\n{item['text']}\n")
+    combined_text = "\n".join(combined_parts).strip()
+
+    return {
+        "status": "success",
+        "total_images": len(image_items),
+        "engine": engine_type,
+        "results": results,
+        "combined_text": combined_text
+    }

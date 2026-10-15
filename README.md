@@ -93,6 +93,26 @@ curl -X POST "http://localhost:8009/ocr/cccd" \
 
 ---
 
+## 5. OCR Đa Ảnh (Multi-Image OCR) & Gemini Vision API
+
+Hệ thống hỗ trợ tải lên và quét OCR cùng lúc nhiều file ảnh (theo dạng **Choose Files** / Multi-file upload), chạy song song bằng mô hình **Gemini Vision** hoặc engine offline (**RapidOCR** / **Tesseract**).
+
+### Giao Diện Web Trực Quan:
+Truy cập trực tiếp: `http://localhost:8009/` trên trình duyệt:
+- **Kéo thả hoặc Chọn nhiều ảnh** cùng lúc (JPG, PNG, WEBP, BMP...).
+- **Xem trước ảnh thumbnail** và xóa từng ảnh tùy chọn.
+- **Tự động OCR bằng Gemini Vision**: Đọc toàn bộ văn bản có trong ảnh, không cần cấu hình thêm.
+- **Kết quả đa dạng**: Xem văn bản tổng hợp, xem theo từng trang ảnh, hoặc sao chép/tải về file `.txt` / `.json`.
+
+### Gọi API Trực Tiếp (Chỉ cần truyền file ảnh):
+```bash
+curl -X POST "http://localhost:8009/ocr/images" \
+  -F "files=@/duong/dan/anh1.jpg" \
+  -F "files=@/duong/dan/anh2.png"
+```
+
+---
+
 ## Cấu Trúc Mã Nguồn
 - [src/server.py](file:///c:/Users/Admin/Desktop/ocr/src/server.py): FastAPI REST Server cung cấp API OCR Bệnh án (`/ocr/pdf`) & CCCD 2 mặt (`/ocr/cccd`).
 - [src/cccd/](file:///c:/Users/Admin/Desktop/ocr/src/cccd/): Module chuyên biệt cho OCR CCCD:
