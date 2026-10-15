@@ -308,11 +308,78 @@ def clean_value(val: str) -> str:
     # Loại bỏ dấu xuống dòng và khoảng trắng thừa
     return re.sub(r'\s+', ' ', val).strip()
 
+def normalize_medical_text(text: str) -> str:
+    r"""
+    Chuẩn hóa văn bản y tế từ OCR hình ảnh hoặc PDF:
+    - Loại bỏ định dạng in đậm Markdown (**text** hoặc __text__)
+    - Chuẩn hóa ký hiệu LaTeX hay gặp trong OCR y tế ($\mu$mol/L, $m^2$, v.v.)
+    """
+    if not text:
+        return ""
+    norm = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    norm = re.sub(r'__(.*?)__', r'\1', norm)
+    norm = norm.replace(r'$\mu$', 'µ').replace(r'\mu', 'µ').replace('$', '')
+    return norm
+
+def extract_lab_measurement(text: str, test_pattern: str) -> tuple[Optional[float], Optional[str]]:
+    """
+    Trích xuất (giá trị_số, đơn_vị) của chỉ số xét nghiệm, hỗ trợ:
+    1. Bảng Markdown ngang (| Tên xét nghiệm | Kết quả | ĐVT | ...)
+    2. Dòng dọc theo từng khối text (PyMuPDF trích xuất từ PDF)
+    3. Tránh bắt nhầm phiên bản máy (như novus_v2, AU5800) hoặc khoảng tham chiếu.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.search(test_pattern, line, re.IGNORECASE):
+            # 1. Hỗ trợ định dạng bảng Markdown có dấu '|'
+            if '|' in line:
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                for idx, p in enumerate(parts):
+                    if re.search(test_pattern, p, re.IGNORECASE):
+                        val = None
+                        unit = None
+                        for cell in parts[idx+1:]:
+                            clean_cell = cell.strip()
+                            if not clean_cell or clean_cell.upper() in ['H', 'L', 'NEGATIVE', 'NEG', 'POSITIVE', 'POS']:
+                                continue
+                            num_match = re.search(r'^(\d+(?:\.\d+)?)', clean_cell)
+                            if num_match and val is None:
+                                val = float(num_match.group(1))
+                                continue
+                            if val is not None:
+                                unit_match = re.search(r'(mmol/L|mg/dL|g/L|µmol/L|umol/L|mg/L|µg/mL|U/L|U/I|/µL)', clean_cell, re.IGNORECASE)
+                                if unit_match:
+                                    unit = unit_match.group(1)
+                                break
+                        if val is not None:
+                            return val, unit
+            else:
+                # 2. Hỗ trợ định dạng phân dòng dọc (PDF)
+                val = None
+                unit = None
+                for next_line in lines[i+1:i+5]:
+                    clean_cell = next_line.strip()
+                    if not clean_cell or clean_cell.upper() in ['H', 'L', 'NEGATIVE', 'NEG', 'POSITIVE', 'POS']:
+                        continue
+                    num_match = re.search(r'^(\d+(?:\.\d+)?)', clean_cell)
+                    if num_match and val is None:
+                        val = float(num_match.group(1))
+                        continue
+                    if val is not None:
+                        unit_match = re.search(r'(mmol/L|mg/dL|g/L|µmol/L|umol/L|mg/L|µg/mL|U/L|U/I|/µL)', clean_cell, re.IGNORECASE)
+                        if unit_match:
+                            unit = unit_match.group(1)
+                        break
+                if val is not None:
+                    return val, unit
+    return None, None
+
 def parse_medical_fields(text: str) -> Dict[str, Any]:
     """
     Phân tích văn bản thô (OCR hoặc trích xuất số) để chuyển đổi thành cấu trúc
     trường thông tin chi tiết dựa trên schema đã định nghĩa.
     """
+    text = normalize_medical_text(text)
     result = {
         "PHAN_LOAI_BENH_LY_NEN": {
             "has_underlying_disease": False
@@ -551,15 +618,20 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
 
     # --- 8. Cholesterol toàn phần ---
     # Thường ở dạng: Cholesterol toàn phần*, Total Cholesterol, v.v.
-    chol_match = re.search(r'(?:Cholesterol\s*toàn\s*phần|Total\s*Cholesterol|Cholesterol\*(?!\s*niệu)|Cholesterol\b(?!\s*[\-\.]?\s*HDL|\s*[\-\.]?\s*LDL|\s*[\-\.]?\s*VLDL))[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
-    if chol_match:
-        val = float(chol_match.group(1))
-        result["A_CHI_SO_SINH_LY_CO_BAN"]["cholesterol_toan_phan"] = val
+    chol_val, _ = extract_lab_measurement(
+        text, 
+        r'Cholesterol\s*toàn\s*phần|Total\s*Cholesterol|Cholesterol\*(?!\s*niệu)|Cholesterol\b(?!\s*[\-\.]?\s*(?:HDL|LDL|VLDL))'
+    )
+    if chol_val is not None:
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["cholesterol_toan_phan"] = chol_val
 
     # --- 9. HDL-Cholesterol ---
-    hdl_match = re.search(r'(?:HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
-    if hdl_match:
-        result["A_CHI_SO_SINH_LY_CO_BAN"]["hdl_cholesterol"] = float(hdl_match.group(1))
+    hdl_val, _ = extract_lab_measurement(
+        text, 
+        r'HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b'
+    )
+    if hdl_val is not None:
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["hdl_cholesterol"] = hdl_val
 
     # --- 9.1. Non-HDL-Cholesterol (Tự động tính = Cholesterol toàn phần - HDL-Cholesterol) ---
     chol_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("cholesterol_toan_phan")
@@ -571,39 +643,41 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
 
     # --- 10. eGFR & ACR ---
     # 10.1. Trích xuất eGFR trực tiếp nếu có
-    egfr_match = re.search(r'(?:eGFR|Độ thanh thải cầu thận|Mức lọc cầu thận eGFR)[^\n]*[=:]?\s*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
-    if egfr_match:
-        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] = float(egfr_match.group(1))
+    egfr_val, _ = extract_lab_measurement(text, r'eGFR|Độ thanh thải cầu thận|Mức lọc cầu thận eGFR')
+    if egfr_val is None:
+        # Bắt dạng inline như: "Mức lọc cầu thận eGFR = 82.4 ml/phút/1.73 m2"
+        egfr_match = re.search(r'(?:eGFR|Độ thanh thải cầu thận|Mức lọc cầu thận eGFR)[^0-9\n]*[=:]?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+        if egfr_match:
+            egfr_val = float(egfr_match.group(1))
+    if egfr_val is not None:
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] = egfr_val
 
     # 10.2. Trích xuất ACR trực tiếp nếu có
-    acr_match = re.search(r'(?:ACR|Tỷ lệ Albumin/Creatinin)[^\n]*[=:]?\s*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
-    if acr_match:
-        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"] = float(acr_match.group(1))
+    acr_val, _ = extract_lab_measurement(text, r'\bACR\b|Tỷ lệ Albumin/Creatinin')
+    if acr_val is None:
+        acr_match = re.search(r'(?:\bACR\b|Tỷ lệ Albumin/Creatinin)[^0-9\n]*[=:]?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+        if acr_match:
+            acr_val = float(acr_match.group(1))
 
-    # 10.3. Bóc tách Albumin niệu & Creatinin niệu để tự động tính ACR nếu chưa có
-    cre_u_match = re.search(r'(?:Creatinin niệu|Creatinin\s*\(niệu\)|Creatinine niệu)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)\s*\n?\s*(mmol/L|mg/dL|g/L|µmol/L|umol/L)?', text, re.IGNORECASE)
-    alb_u_match = re.search(r'(?:Albumin niệu|Microalbumin niệu|Albumin\s*\(niệu\)|Microalbumin)[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)\s*\n?\s*(mg/L|mg/dL|g/L|µg/mL)?', text, re.IGNORECASE)
+    # 10.3. Bóc tách Albumin niệu & Creatinin niệu để tự động tính ACR (chuẩn mg/g)
+    cre_u_val, cre_u_unit = extract_lab_measurement(text, r'Creatinin\s*niệu|Creatinin\s*\(niệu\)|Creatinine\s*niệu')
+    alb_u_val, alb_u_unit = extract_lab_measurement(text, r'Albumin\s*niệu|Microalbumin\s*niệu|Albumin\s*\(niệu\)|Microalbumin\b')
 
-    if alb_u_match and cre_u_match:
-        alb_val = float(alb_u_match.group(1))
-        alb_unit = alb_u_match.group(2) or "mg/L"
-        cre_val = float(cre_u_match.group(1))
-        cre_unit = cre_u_match.group(2) or "mmol/L"
-
-        calculated_acr = calculate_acr(alb_val, alb_unit, cre_val, cre_unit)
+    if alb_u_val is not None and cre_u_val is not None:
+        calculated_acr = calculate_acr(alb_u_val, alb_u_unit or "mg/L", cre_u_val, cre_u_unit or "mmol/L")
         if calculated_acr is not None:
-            # Nếu chưa có acr hoặc ưu tiên giá trị tính từ xét nghiệm thực tế
+            # Ưu tiên giá trị tính từ xét nghiệm thực tế
             result["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"] = calculated_acr
+    elif acr_val is not None:
+        result["C_BENH_LY_MAN_TINH_KEM_THEO"]["acr"] = acr_val
 
     # 10.4. Tự động tính eGFR nếu chưa có từ Creatinin huyết thanh (máu) + Tuổi + Giới tính
     if result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] is None:
-        cre_b_match = re.search(r'(?:Creatinin huyết thanh|Creatinin máu|SCr|Creatinin\*(?!\s*niệu))[^\n]*\n?(?:[A-Z\s]*\n)?\s*(\d+(?:\.\d+)?)\s*\n?\s*(µmol/L|umol/L|mg/dL)?', text, re.IGNORECASE)
-        if cre_b_match:
-            scr_val = float(cre_b_match.group(1))
-            scr_unit = cre_b_match.group(2) or "µmol/L"
+        cre_b_val, cre_b_unit = extract_lab_measurement(text, r'Creatinin\s*huyết\s*thanh|Creatinin\s*máu|SCr|Creatinin\*(?!\s*niệu)')
+        if cre_b_val is not None:
             age_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("tuoi")
             gender_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("gioi_tinh") or "Nam"
-            calculated_egfr = calculate_egfr(scr_val, scr_unit, age_val, gender_val)
+            calculated_egfr = calculate_egfr(cre_b_val, cre_b_unit or "µmol/L", age_val, gender_val)
             if calculated_egfr is not None:
                 result["C_BENH_LY_MAN_TINH_KEM_THEO"]["egfr"] = calculated_egfr
 
@@ -613,14 +687,13 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         if current_acr >= 30:  # ACR >= 30 mg/g là có Microalbumin niệu (tiêu chuẩn y khoa)
             result["TON_THUONG_CO_QUAN_DICH"]["albumin_microalbumin_nieu"] = True
             result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
-    elif alb_u_match:
-        alb_val = float(alb_u_match.group(1))
-        if alb_val >= 20:  # Albumin niệu >= 20-30 mg/L
+    elif alb_u_val is not None:
+        if alb_u_val >= 20:  # Albumin niệu >= 20-30 mg/L
             result["TON_THUONG_CO_QUAN_DICH"]["albumin_microalbumin_nieu"] = True
             result["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"] = True
 
     # --- 11. Huyết áp tâm thu SBP ---
-    sbp_match = re.search(r'(?:Huyết áp tâm thu|SBP):\s*(\d+)', text, re.IGNORECASE)
+    sbp_match = re.search(r'(?:Huyết áp tâm thu|SBP)[^0-9\n]*[:=]?\s*(\d+)', text, re.IGNORECASE)
     if sbp_match:
         sbp_val = int(sbp_match.group(1))
         result["A_CHI_SO_SINH_LY_CO_BAN"]["huyet_ap_tam_thu_sbp"] = sbp_val
