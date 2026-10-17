@@ -2,7 +2,7 @@ import re
 import os
 import json
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from src.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS
 from src.calculators import calculate_egfr, calculate_acr
 
@@ -197,6 +197,7 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
             "(gán true cho các bệnh lý thực sự được chẩn đoán xác định).\n"
             "LƯU Ý QUAN TRỌNG: Tuyệt đối KHÔNG gán true cho các bệnh có tiền tố 'TD', 'T/D', 'Theo dõi', 'Nghi ngờ' "
             "(ví dụ: 'TD suy tim', 'TD bướu giáp' chỉ là theo dõi/nghi ngờ nên phải đặt false).\n\n"
+            "Một số phiếu khám dùng chỉ số khác nhau nhưng cùng 1 ý nghĩa. Ví dụ: egfr và eGFR đều là 1 chỉ số giống nhau\n\n"
             f"VĂN BẢN CHẨN ĐOÁN:\n{chandoan_text}"
         )
         
@@ -324,54 +325,79 @@ def normalize_medical_text(text: str) -> str:
 def extract_lab_measurement(text: str, test_pattern: str) -> tuple[Optional[float], Optional[str]]:
     """
     Trích xuất (giá trị_số, đơn_vị) của chỉ số xét nghiệm, hỗ trợ:
-    1. Bảng Markdown ngang (| Tên xét nghiệm | Kết quả | ĐVT | ...)
-    2. Dòng dọc theo từng khối text (PyMuPDF trích xuất từ PDF)
-    3. Tránh bắt nhầm phiên bản máy (như novus_v2, AU5800) hoặc khoảng tham chiếu.
+    1. Bảng Markdown có dấu '|' hoặc tab '\\t'
+    2. Dòng ngang cùng hàng (Inline, ví dụ: 'eGFR = 41.2 ml/phút/1.73 m²', 'Albumin niệu 10 mg/L', 'Cholesterol toàn phần* H 5.59 mmol/L')
+    3. Dòng dọc theo từng khối text (PDF/ảnh quét từng dòng)
+    4. Tránh bắt nhầm phiên bản máy (novus_v2, AU5800), khoảng tham chiếu, hoặc mốc thời gian (08h54, ngày tháng).
     """
     lines = text.splitlines()
+    units_pattern = r'(mmol/L|mg/dL|g/L|µmol/L|umol/L|mg/L|µg/mL|U/L|U/I|/µL|ml/phút/1\.73\s*m[²2]|ml/min)'
+
     for i, line in enumerate(lines):
-        if re.search(test_pattern, line, re.IGNORECASE):
-            # 1. Hỗ trợ định dạng bảng Markdown có dấu '|'
-            if '|' in line:
-                parts = [p.strip() for p in line.split('|') if p.strip()]
-                for idx, p in enumerate(parts):
-                    if re.search(test_pattern, p, re.IGNORECASE):
-                        val = None
-                        unit = None
-                        for cell in parts[idx+1:]:
-                            clean_cell = cell.strip()
-                            if not clean_cell or clean_cell.upper() in ['H', 'L', 'NEGATIVE', 'NEG', 'POSITIVE', 'POS']:
-                                continue
-                            num_match = re.search(r'^(\d+(?:\.\d+)?)', clean_cell)
-                            if num_match and val is None:
-                                val = float(num_match.group(1))
-                                continue
-                            if val is not None:
-                                unit_match = re.search(r'(mmol/L|mg/dL|g/L|µmol/L|umol/L|mg/L|µg/mL|U/L|U/I|/µL)', clean_cell, re.IGNORECASE)
-                                if unit_match:
-                                    unit = unit_match.group(1)
-                                break
+        if not re.search(test_pattern, line, re.IGNORECASE):
+            continue
+
+        # 1. Hỗ trợ định dạng bảng phân cách bằng '|' hoặc '\\t'
+        sep = '|' if '|' in line else ('\t' if '\t' in line else None)
+        if sep:
+            parts = [p.strip() for p in line.split(sep) if p.strip()]
+            for idx, p in enumerate(parts):
+                if re.search(test_pattern, p, re.IGNORECASE):
+                    val = None
+                    unit = None
+                    for cell in parts[idx+1:]:
+                        clean_cell = cell.strip()
+                        if not clean_cell or clean_cell.upper() in ['H', 'L', 'NEGATIVE', 'NEG', 'POSITIVE', 'POS']:
+                            continue
+                        clean_cell_no_hl = re.sub(r'^[HL]\s+', '', clean_cell, flags=re.IGNORECASE)
+                        num_match = re.search(r'^(\d+(?:\.\d+)?)', clean_cell_no_hl)
+                        if num_match and val is None:
+                            val = float(num_match.group(1))
+                            continue
                         if val is not None:
-                            return val, unit
-            else:
-                # 2. Hỗ trợ định dạng phân dòng dọc (PDF)
-                val = None
-                unit = None
-                for next_line in lines[i+1:i+5]:
-                    clean_cell = next_line.strip()
-                    if not clean_cell or clean_cell.upper() in ['H', 'L', 'NEGATIVE', 'NEG', 'POSITIVE', 'POS']:
-                        continue
-                    num_match = re.search(r'^(\d+(?:\.\d+)?)', clean_cell)
-                    if num_match and val is None:
-                        val = float(num_match.group(1))
-                        continue
+                            unit_match = re.search(units_pattern, clean_cell, re.IGNORECASE)
+                            if unit_match:
+                                unit = unit_match.group(1)
+                            break
                     if val is not None:
-                        unit_match = re.search(r'(mmol/L|mg/dL|g/L|µmol/L|umol/L|mg/L|µg/mL|U/L|U/I|/µL)', clean_cell, re.IGNORECASE)
-                        if unit_match:
-                            unit = unit_match.group(1)
-                        break
-                if val is not None:
-                    return val, unit
+                        return val, unit
+
+        # 2. Hỗ trợ trường hợp giá trị nằm ngay trên cùng dòng (Inline)
+        # Ví dụ: 'Mức lọc cầu thận eGFR = 41.2 ml/phút/1.73 m²', 'Cholesterol toàn phần* H 5.59 mmol/L', 'Creatinin niệu L 4.4 mmol/L'
+        m_pattern = re.search(test_pattern, line, re.IGNORECASE)
+        after_text = line[m_pattern.end():].strip()
+        if after_text:
+            clean_after = re.sub(r'^[=\s:*]+', '', after_text)
+            clean_after_no_hl = re.sub(r'^[HL]\s+', '', clean_after, flags=re.IGNORECASE)
+            inline_match = re.search(r'^(\d+(?:\.\d+)?)', clean_after_no_hl)
+            if inline_match:
+                val = float(inline_match.group(1))
+                unit_match = re.search(units_pattern, after_text, re.IGNORECASE)
+                unit = unit_match.group(1) if unit_match else None
+                return val, unit
+
+        # 3. Hỗ trợ định dạng phân dòng dọc (Vertical layout)
+        val = None
+        unit = None
+        for next_line in lines[i+1:i+6]:
+            clean_cell = next_line.strip()
+            if not clean_cell or clean_cell.upper() in ['H', 'L', 'NEGATIVE', 'NEG', 'POSITIVE', 'POS']:
+                continue
+            if re.search(r'^\d{1,2}h\d{2}|\d{1,2}/\d{1,2}/\d{4}|BÁC S|KHOA|NHẬN XÉT|KẾT LUẬN|PHIẾU', clean_cell, re.IGNORECASE):
+                continue
+            clean_cell_no_hl = re.sub(r'^[HL]\s+', '', clean_cell, flags=re.IGNORECASE)
+            num_match = re.search(r'^(\d+(?:\.\d+)?)', clean_cell_no_hl)
+            if num_match and val is None:
+                val = float(num_match.group(1))
+                continue
+            if val is not None:
+                unit_match = re.search(units_pattern, clean_cell, re.IGNORECASE)
+                if unit_match:
+                    unit = unit_match.group(1)
+                break
+        if val is not None:
+            return val, unit
+
     return None, None
 
 def parse_medical_fields(text: str) -> Dict[str, Any]:
@@ -642,7 +668,7 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["A_CHI_SO_SINH_LY_CO_BAN"]["non_hdl_cholesterol"] = None
 
     # --- 10. eGFR & ACR ---
-    # 10.1. Trích xuất eGFR trực tiếp nếu có
+    #10.1. Trích xuất eGFR trực tiếp nếu có
     egfr_val, _ = extract_lab_measurement(text, r'eGFR|Độ thanh thải cầu thận|Mức lọc cầu thận eGFR')
     if egfr_val is None:
         # Bắt dạng inline như: "Mức lọc cầu thận eGFR = 82.4 ml/phút/1.73 m2"
@@ -704,3 +730,254 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
         result["D_THONG_TIN_NHOM_CHAM_SOC"]["ma_nhom_cham_soc"] = care_match.group(1)
 
     return result
+
+
+def extract_data_provenance(pages: List[Dict[str, Any]], final_data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[int, List[Dict[str, Any]]]]:
+    r"""
+    Theo dõi chi tiết nguồn gốc (provenance/evidence) của từng trường dữ liệu:
+    Xác định chính xác từng giá trị được lấy từ trang nào, file ảnh nào, và dòng văn bản gốc nào.
+    
+    Args:
+        pages: Danh sách các trang dạng [{"page_index": 1, "filename": "...", "text": "..."}]
+        final_data: Cấu trúc JSON thông tin y khoa đã bóc tách được.
+        
+    Returns:
+        Tuple gồm:
+        - provenance_list: Danh sách chi tiết nguồn gốc của từng trường dữ liệu (sắp xếp theo trang).
+        - page_findings_map: Từ điển gom nhóm các dữ liệu trích xuất theo từng trang.
+    """
+    provenance_list = []
+    # Chuẩn hóa trường page_index cho mỗi trang (hỗ trợ cả page và page_index)
+    pages = [
+        {**p, "page_index": p.get("page_index", p.get("page", idx + 1))}
+        for idx, p in enumerate(pages)
+    ]
+    page_findings_map = {p["page_index"]: [] for p in pages}
+
+    def add_provenance(field_key: str, section: str, display_name: str, val: Any, page_idx: int, filename: str, snippet: str, method: str = "Trích xuất trực tiếp"):
+        item = {
+            "truong": field_key,
+            "muc": section,
+            "ten_hien_thi": display_name,
+            "gia_tri": val,
+            "trang": page_idx,
+            "file_anh": filename,
+            "doan_trich": snippet,
+            "phuong_thuc": method
+        }
+        provenance_list.append(item)
+        if page_idx in page_findings_map:
+            page_findings_map[page_idx].append({
+                "truong": field_key,
+                "ten_hien_thi": display_name,
+                "gia_tri": val,
+                "doan_trich": snippet,
+                "phuong_thuc": method
+            })
+
+    def find_evidence_line(txt: str, pattern: str) -> str:
+        for line in txt.splitlines():
+            if re.search(pattern, line, re.IGNORECASE):
+                return line.strip()
+        return ""
+
+    # 1. Thông tin cá nhân
+    info_ca_nhan = final_data.get("THONG_TIN_CA_NHAN", {})
+    name = info_ca_nhan.get("ho_va_ten")
+    if name:
+        for p in pages:
+            ev = find_evidence_line(p["text"], re.escape(name))
+            if ev:
+                add_provenance("ho_va_ten", "THONG_TIN_CA_NHAN", "Họ và tên", name, p["page_index"], p["filename"], ev)
+                break
+
+    ma_bn = info_ca_nhan.get("ma_benh_nhan")
+    if ma_bn:
+        for p in pages:
+            ev = find_evidence_line(p["text"], re.escape(ma_bn))
+            if ev:
+                add_provenance("ma_benh_nhan", "THONG_TIN_CA_NHAN", "Mã bệnh nhân", ma_bn, p["page_index"], p["filename"], ev)
+                break
+
+    ngay_sinh = info_ca_nhan.get("ngay_sinh")
+    if ngay_sinh:
+        for p in pages:
+            ev = find_evidence_line(p["text"], r'NS:|Năm sinh:|Ngày sinh:')
+            if ev:
+                add_provenance("ngay_sinh", "THONG_TIN_CA_NHAN", "Ngày sinh / Năm sinh", ngay_sinh, p["page_index"], p["filename"], ev)
+                break
+
+    cccd = info_ca_nhan.get("cccd_cmnd")
+    if cccd:
+        for p in pages:
+            ev = find_evidence_line(p["text"], re.escape(str(cccd)))
+            if ev:
+                add_provenance("cccd_cmnd", "THONG_TIN_CA_NHAN", "Số CCCD/CMND", cccd, p["page_index"], p["filename"], ev)
+                break
+
+    # 2. Thông tin liên hệ & địa chỉ
+    info_dc = final_data.get("THONG_TIN_LIEN_HE_AND_DIA_CHI", {})
+    addr = info_dc.get("dia_chi_day_du")
+    if addr:
+        for p in pages:
+            ev = find_evidence_line(p["text"], r'Địa chỉ:')
+            if ev:
+                add_provenance("dia_chi_day_du", "THONG_TIN_LIEN_HE_AND_DIA_CHI", "Địa chỉ đầy đủ", addr, p["page_index"], p["filename"], ev)
+                break
+
+    tinh_tp = info_dc.get("tinh_thanh_pho")
+    if tinh_tp:
+        for p in pages:
+            ev = find_evidence_line(p["text"], re.escape(tinh_tp))
+            if ev:
+                add_provenance("tinh_thanh_pho", "THONG_TIN_LIEN_HE_AND_DIA_CHI", "Tỉnh / Thành phố", tinh_tp, p["page_index"], p["filename"], ev, "Bóc tách từ địa chỉ")
+                break
+
+    sdt = info_dc.get("so_dien_thoai")
+    if sdt:
+        for p in pages:
+            ev = find_evidence_line(p["text"], re.escape(str(sdt)))
+            if ev:
+                add_provenance("so_dien_thoai", "THONG_TIN_LIEN_HE_AND_DIA_CHI", "Số điện thoại", sdt, p["page_index"], p["filename"], ev)
+                break
+
+    # 3. Chỉ số sinh lý cơ bản
+    sinh_ly = final_data.get("A_CHI_SO_SINH_LY_CO_BAN", {})
+    tuoi = sinh_ly.get("tuoi")
+    if tuoi:
+        for p in pages:
+            ev = find_evidence_line(p["text"], r'NS:|Năm sinh:|Tuổi:')
+            if ev:
+                add_provenance("tuoi", "A_CHI_SO_SINH_LY_CO_BAN", "Tuổi bệnh nhân", tuoi, p["page_index"], p["filename"], ev, "Tính từ năm sinh" if "NS:" in ev else "Trích xuất trực tiếp")
+                break
+
+    gt = sinh_ly.get("gioi_tinh")
+    if gt:
+        for p in pages:
+            ev = find_evidence_line(p["text"], r'GT:|Giới tính:')
+            if ev:
+                add_provenance("gioi_tinh", "A_CHI_SO_SINH_LY_CO_BAN", "Giới tính", gt, p["page_index"], p["filename"], ev)
+                break
+
+    sbp = sinh_ly.get("huyet_ap_tam_thu_sbp")
+    if sbp is not None:
+        for p in pages:
+            ev = find_evidence_line(p["text"], r'Huyết áp tâm thu|SBP')
+            if ev:
+                add_provenance("huyet_ap_tam_thu_sbp", "A_CHI_SO_SINH_LY_CO_BAN", "Huyết áp tâm thu SBP", sbp, p["page_index"], p["filename"], ev)
+                break
+
+    chol = sinh_ly.get("cholesterol_toan_phan")
+    if chol is not None:
+        for p in pages:
+            c_val, _ = extract_lab_measurement(p["text"], r'Cholesterol\s*toàn\s*phần|Total\s*Cholesterol|Cholesterol\*')
+            if c_val == chol:
+                ev = find_evidence_line(p["text"], r'Cholesterol\s*toàn\s*phần|Total\s*Cholesterol|Cholesterol\*')
+                add_provenance("cholesterol_toan_phan", "A_CHI_SO_SINH_LY_CO_BAN", "Cholesterol toàn phần", chol, p["page_index"], p["filename"], ev)
+                break
+
+    hdl = sinh_ly.get("hdl_cholesterol")
+    if hdl is not None:
+        for p in pages:
+            h_val, _ = extract_lab_measurement(p["text"], r'HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b')
+            if h_val == hdl:
+                ev = find_evidence_line(p["text"], r'HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b')
+                add_provenance("hdl_cholesterol", "A_CHI_SO_SINH_LY_CO_BAN", "HDL-Cholesterol", hdl, p["page_index"], p["filename"], ev)
+                break
+
+    non_hdl = sinh_ly.get("non_hdl_cholesterol")
+    if non_hdl is not None:
+        first_lab_page = provenance_list[-1]["trang"] if provenance_list else 1
+        first_lab_file = provenance_list[-1]["file_anh"] if provenance_list else ""
+        add_provenance(
+            "non_hdl_cholesterol", "A_CHI_SO_SINH_LY_CO_BAN", "Non-HDL-Cholesterol", non_hdl, 
+            first_lab_page, first_lab_file,
+            f"Tự động tính toán: Cholesterol toàn phần ({chol}) - HDL ({hdl}) = {non_hdl} mmol/L",
+            "Tự động tính toán y khoa"
+        )
+
+    # 4. Tiền sử bệnh lý
+    ts = final_data.get("CHI_SO_AND_TIEN_SU_SUC_KHOE", {}).get("tien_su_benh_ly")
+    if ts:
+        for p in pages:
+            ev = find_evidence_line(p["text"], r'Chẩn đoán|Tiền sử')
+            if ev:
+                add_provenance("tien_su_benh_ly", "CHI_SO_AND_TIEN_SU_SUC_KHOE", "Tiền sử bệnh lý / Chẩn đoán", ts, p["page_index"], p["filename"], ev)
+                break
+
+    # 5. eGFR & ACR
+    man_tinh = final_data.get("C_BENH_LY_MAN_TINH_KEM_THEO", {})
+    egfr = man_tinh.get("egfr") if man_tinh.get("egfr") is not None else man_tinh.get("eGFR")
+    if egfr is not None:
+        found_egfr = False
+        for p in pages:
+            if re.search(r'eGFR|Độ thanh thải', p["text"], re.IGNORECASE):
+                ev = find_evidence_line(p["text"], r'eGFR|Độ thanh thải')
+                add_provenance("egfr", "C_BENH_LY_MAN_TINH_KEM_THEO", "Mức lọc cầu thận eGFR", egfr, p["page_index"], p["filename"], ev, "Trích xuất trực tiếp")
+                found_egfr = True
+                break
+        if not found_egfr:
+            for p in pages:
+                cr_b, _ = extract_lab_measurement(p["text"], r'Creatinin\s*huyết\s*thanh|Creatinin\s*máu|SCr|Creatinin\*(?!\s*niệu)')
+                if cr_b:
+                    ev = find_evidence_line(p["text"], r'Creatinin\s*huyết\s*thanh|Creatinin\s*máu|Creatinin\*')
+                    add_provenance("egfr", "C_BENH_LY_MAN_TINH_KEM_THEO", "Mức lọc cầu thận eGFR", egfr, p["page_index"], p["filename"], f"Tự động tính theo CKD-EPI 2021 từ SCr: {cr_b} ({ev})", "Tự động tính toán CKD-EPI")
+                    break
+
+    acr = man_tinh.get("acr")
+    if acr is not None:
+        for p in pages:
+            alb, alb_u = extract_lab_measurement(p["text"], r'Albumin\s*niệu')
+            cre, cre_u = extract_lab_measurement(p["text"], r'Creatinin\s*niệu')
+            if alb and cre:
+                ev_alb = find_evidence_line(p["text"], r'Albumin\s*niệu')
+                ev_cre = find_evidence_line(p["text"], r'Creatinin\s*niệu')
+                add_provenance(
+                    "acr", "C_BENH_LY_MAN_TINH_KEM_THEO", "Tỷ lệ ACR (Albumin/Creatinin niệu)", acr, 
+                    p["page_index"], p["filename"], 
+                    f"Tính từ Albumin niệu: '{ev_alb}' & Creatinin niệu: '{ev_cre}'",
+                    f"Tự động tính toán: ({alb} * 8.84) / {cre} = {acr} mg/g"
+                )
+                break
+
+    # Vi đạm niệu
+    if final_data.get("TON_THUONG_CO_QUAN_DICH", {}).get("albumin_microalbumin_nieu") is True:
+        target_p = None
+        for p in pages:
+            if re.search(r'Albumin\s*niệu', p["text"], re.IGNORECASE):
+                target_p = p
+                break
+        if target_p:
+            add_provenance(
+                "albumin_microalbumin_nieu", "TON_THUONG_CO_QUAN_DICH", "Tổn thương thận / Microalbumin niệu", True,
+                target_p["page_index"], target_p["filename"],
+                f"Đánh giá từ ACR = {acr} mg/g (>= 30 mg/g -> có vi đạm niệu)" if acr else "Đánh giá từ chỉ số Albumin niệu",
+                "Suy luận y khoa chuẩn KDIGO"
+            )
+
+    # 6. Các bệnh lý mạn tính kèm theo (chỉ lấy các bệnh = True)
+    chronic_map = {
+        "roi_loan_chuyen_hoa_mo_mau": ("Rối loạn chuyển hóa mỡ máu", r'rối loạn chuyển hóa (?:lipid|mỡ máu)|mỡ máu'),
+        "vua_xo_mach_mau": ("Vữa xơ mạch máu", r'xơ vữa|vữa xơ'),
+        "tang_huyet_ap": ("Tăng huyết áp", r'tăng huyết áp|hypertension'),
+        "dai_thao_duong": ("Đái tháo đường", r'đái tháo đường|tiểu đường|diabetes'),
+        "suy_than": ("Suy thận", r'suy thận|bệnh thận mạn|ckd'),
+        "benh_ly_mach_vanh": ("Bệnh lý mạch vành", r'mạch vành|cad'),
+        "nhoi_mau_co_tim": ("Nhồi máu cơ tim", r'nhồi máu cơ tim'),
+        "dot_quy_nao": ("Đột quỵ não", r'đột quỵ|tai biến mạch máu não|stroke'),
+        "phinh_dong_mach_chu": ("Phình động mạch chủ", r'phình động mạch chủ|aaa'),
+        "benh_mach_mau_ngoai_vi": ("Bệnh mạch máu ngoại vi", r'mạch máu ngoại vi|pad'),
+        "tang_cholesterol_mau_gia_dinh": ("Tăng Cholesterol máu gia đình", r'cholesterol.*gia đình|fh')
+    }
+    for field_key, (disp_name, pat) in chronic_map.items():
+        if man_tinh.get(field_key) is True:
+            for p in pages:
+                ev = find_evidence_line(p["text"], pat)
+                if ev:
+                    add_provenance(field_key, "C_BENH_LY_MAN_TINH_KEM_THEO", disp_name, True, p["page_index"], p["filename"], ev, "Nhận diện từ chẩn đoán y khoa")
+                    break
+
+    # Sắp xếp theo trang tăng dần
+    provenance_list.sort(key=lambda x: x["trang"])
+
+    return provenance_list, page_findings_map

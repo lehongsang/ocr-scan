@@ -44,5 +44,27 @@ class TestMultiImageOCR(unittest.TestCase):
         self.assertTrue(resp_json["PHAN_LOAI_BENH_LY_NEN"]["has_underlying_disease"])
         self.assertTrue(resp_json["C_BENH_LY_MAN_TINH_KEM_THEO"]["tang_huyet_ap"])
 
+        # Kiểm tra phần RAW_OCR_PAGES và RAW_OCR_TEXT của từng trang
+        self.assertIn("RAW_OCR_PAGES", resp_json)
+        self.assertIn("RAW_OCR_TEXT", resp_json)
+        self.assertEqual(len(resp_json["RAW_OCR_PAGES"]), 2)
+        self.assertEqual(resp_json["RAW_OCR_PAGES"][0]["page"], 1)
+        self.assertEqual(resp_json["RAW_OCR_PAGES"][0]["filename"], "trang_1.png")
+        self.assertIn("text", resp_json["RAW_OCR_PAGES"][0])
+        self.assertEqual(resp_json["RAW_OCR_PAGES"][1]["page"], 2)
+        self.assertEqual(resp_json["RAW_OCR_PAGES"][1]["filename"], "trang_2.png")
+
+        # Kiểm tra nguồn dẫn chứng chi tiết của từng dữ liệu
+        self.assertIn("CHI_TIET_TRICH_XUAT", resp_json)
+        self.assertTrue(len(resp_json["CHI_TIET_TRICH_XUAT"]) > 0)
+        self.assertIn("du_lieu_tim_thay", resp_json["RAW_OCR_PAGES"][0])
+        
+        # Kiểm tra xem có trích dẫn đúng trang của Họ và tên và Tăng huyết áp không
+        fields_found = {item["truong"]: item["trang"] for item in resp_json["CHI_TIET_TRICH_XUAT"]}
+        self.assertIn("ho_va_ten", fields_found)
+        self.assertEqual(fields_found["ho_va_ten"], 1)
+        self.assertIn("tang_huyet_ap", fields_found)
+        self.assertEqual(fields_found["tang_huyet_ap"], 2)
+
 if __name__ == "__main__":
     unittest.main()

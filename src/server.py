@@ -196,6 +196,27 @@ async def perform_ocr_images(
             from src.parser import parse_medical_fields
             structured_data = parse_medical_fields(final_text)
 
+        # Bước 3: Định vị chi tiết nguồn gốc dữ liệu (trang nào, dòng nào, file nào)
+        from src.parser import extract_data_provenance
+        raw_pages = result.get("results", [])
+        provenance_list, page_findings_map = extract_data_provenance(raw_pages, structured_data)
+
+        # Bổ sung danh sách chi tiết nguồn gốc vào response
+        structured_data["CHI_TIET_TRICH_XUAT"] = provenance_list
+
+        # Bước 4: Trả kèm toàn bộ text đã quét ra được của từng trang ảnh và text tổng hợp
+        structured_data["RAW_OCR_PAGES"] = [
+            {
+                "page": item["page_index"],
+                "filename": item["filename"],
+                "char_count": item.get("char_count", len(item.get("text", ""))),
+                "du_lieu_tim_thay": page_findings_map.get(item["page_index"], []),
+                "text": item.get("text", "")
+            }
+            for item in raw_pages
+        ]
+        structured_data["RAW_OCR_TEXT"] = final_text
+
         return structured_data
 
     except Exception as e:
