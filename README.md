@@ -113,16 +113,78 @@ curl -X POST "http://localhost:8009/ocr/images" \
 
 ---
 
+## 6. API OCR Đơn Thuốc / Toa Thuốc (`/ocr/prescription`)
+
+Hệ thống cung cấp endpoint chuyên biệt `/ocr/prescription` để quét và bóc tách thông tin từ **Đơn thuốc / Toa thuốc y tế** (chấp nhận cả ảnh chụp điện thoại và tệp PDF, hỗ trợ cả bản in vi tính lẫn chữ viết tay của bác sĩ).
+
+### Đặc Điểm Nổi Bật:
+1. **Từ điển chuẩn hóa Cục Quản lý Dược (DAV)**: Tích hợp sẵn cơ sở dữ liệu `drug_names.json` (tối ưu từ `drugs_catalog.cleaned.json` từ 66MB xuống còn ~9.8MB với 44.219 tên thuốc chuẩn).
+2. **Đối chiếu mờ đa tầng (Multi-tier Matching)**:
+   - **Exact Match**: So khớp chính xác 100%.
+   - **Base Name Match**: Bóc tách hàm lượng/dạng dùng để so khớp tên gốc (vd: `Panado Extra` -> `Panadol Extra`, `Augmentin 1g` -> `Augmentin 1g`).
+   - **Active Ingredient Match**: Nhận diện kể cả khi bác sĩ kê đơn theo tên hoạt chất (vd: `Paracetamol`, `Venetoclax`, `Cefuroxim`...).
+   - **Fuzzy Matching (RapidFuzz)**: Tự động sửa lỗi chính tả khi OCR đọc nhầm ký tự hoặc chữ bác sĩ viết ngoáy (vd: `Klarnentin` -> `Klamentin`, `Nexiumm` -> `Nexium`).
+3. **Đầu ra chuẩn y tế**: Trả về trực tiếp mảng danh sách tên thuốc `drug_names` để client sử dụng ngay, kèm đối tượng chi tiết `medications` (tên chuẩn, hoạt chất, hàm lượng, dạng bào chế, số lượng, cách dùng, độ tin cậy `confidence`).
+
+### Cách Gọi API:
+```bash
+curl -X POST "http://localhost:8009/ocr/prescription" \
+  -F "file=@/duong/dan/don_thuoc.jpg"
+```
+*(Hoặc truyền file PDF: `-F "file=@/duong/dan/don_thuoc.pdf"`)*
+
+### Cấu Trúc Response:
+```json
+{
+  "status": "success",
+  "total_medications": 4,
+  "drug_names": [
+    "Augmentin 1g",
+    "Panadol Extra",
+    "Nexium",
+    "Klamentin 1g"
+  ],
+  "prescription_info": {
+    "patient_name": "Nguyễn Văn An",
+    "age": 35,
+    "gender": "Nam",
+    "diagnosis": "Viêm họng cấp, sốt nhẹ",
+    "doctor_name": "BS. Trần Anh Tuấn",
+    "facility_name": "BỆNH VIỆN ĐA KHOA QUỐC TẾ",
+    "date": "21 tháng 10 năm 2026"
+  },
+  "medications": [
+    {
+      "stt": "1",
+      "raw_name": "Augmentin 1g",
+      "matched_name": "Augmentin 1g",
+      "base_name": "Augmentin",
+      "active_ingredient": "Amoxicillin; Acid clavulanic",
+      "strength": "1g",
+      "dosage_form": "Viên nén bao phim",
+      "quantity": "14 viên",
+      "usage": "Uống: Sáng 1 viên, tối 1 viên sau ăn",
+      "confidence": 1.0,
+      "match_type": "exact",
+      "is_verified": true
+    }
+  ],
+  "raw_ocr_text": "...",
+  "engine_used": "gemini"
+}
+```
+
+---
+
 ## Cấu Trúc Mã Nguồn
-- [src/server.py](file:///c:/Users/Admin/Desktop/ocr/src/server.py): FastAPI REST Server cung cấp API OCR Bệnh án (`/ocr/pdf`) & CCCD 2 mặt (`/ocr/cccd`).
-- [src/cccd/](file:///c:/Users/Admin/Desktop/ocr/src/cccd/): Module chuyên biệt cho OCR CCCD:
-  - `schema.py`: Pydantic data model cho CCCD (hỗ trợ nơi cấp, ngày cấp, đặc điểm nhận dạng, mrz).
-  - `parser.py`: Trích xuất thông tin thông minh từ text OCR mặt trước và mặt sau, nhận diện mặt thẻ, merge 2 mặt.
-  - `corrector.py`: Tự động sửa lỗi chính tả tiếng Việt, chuẩn hóa tên Tỉnh/Thành phố và Cơ quan cấp.
-  - `processor.py`: Pipeline xử lý ảnh, quét QR code nâng cao và kết hợp OCR 2 mặt.
-- [src/config.py](file:///c:/Users/Admin/Desktop/ocr/src/config.py): Cấu hình chung cho OCR.
-- [src/utils.py](file:///c:/Users/Admin/Desktop/ocr/src/utils.py): Đo hiệu năng, ghi logs.
+- [src/server.py](file:///c:/Users/Admin/Desktop/ocr/src/server.py): FastAPI REST Server cung cấp các API: Đơn thuốc (`/ocr/prescription`), Hồ sơ Bệnh án (`/ocr/images`, `/ocr/pdf`) & CCCD (`/ocr/cccd`).
+- [src/prescription_parser.py](file:///c:/Users/Admin/Desktop/ocr/src/prescription_parser.py): Engine phân tích đơn thuốc từ ảnh/PDF và tích hợp so khớp từ điển dược.
+- [src/drug_matcher.py](file:///c:/Users/Admin/Desktop/ocr/src/drug_matcher.py): Engine đối chiếu tên thuốc với cơ sở dữ liệu Cục Quản lý Dược (so khớp chính xác, base name, hoạt chất và RapidFuzz).
+- [drug_names.json](file:///c:/Users/Admin/Desktop/ocr/drug_names.json): Bộ từ điển thuốc tinh gọn (44.219 tên thuốc chuẩn hóa, 9.8MB).
+- [drug_names_list.json](file:///c:/Users/Admin/Desktop/ocr/drug_names_list.json): Danh sách phẳng 54.864 tên thuốc rút gọn (1.12MB).
+- [generate_drug_names.py](file:///c:/Users/Admin/Desktop/ocr/generate_drug_names.py): Script chuyển đổi từ `drugs_catalog.cleaned.json` sang từ điển chuẩn hóa.
+- [src/gemini_vision.py](file:///c:/Users/Admin/Desktop/ocr/src/gemini_vision.py): Gọi Gemini Vision OCR tài liệu và đơn thuốc y tế.
+- [src/cccd/](file:///c:/Users/Admin/Desktop/ocr/src/cccd/): Module chuyên biệt cho OCR CCCD 2 mặt.
 - [src/pdf_processor.py](file:///c:/Users/Admin/Desktop/ocr/src/pdf_processor.py): Kiểm tra định dạng PDF, trích xuất text layer và render PDF sang ảnh.
-- [src/ocr_engine.py](file:///c:/Users/Admin/Desktop/ocr/src/ocr_engine.py): Chạy OCR engine (RapidOCR / Tesseract).
-- [src/main.py](file:///c:/Users/Admin/Desktop/ocr/src/main.py): Điều khiển chính của ứng dụng PDF OCR.
+- [src/ocr_engine.py](file:///c:/Users/Admin/Desktop/ocr/src/ocr_engine.py): Chạy OCR engine cục bộ (RapidOCR / Tesseract).
 

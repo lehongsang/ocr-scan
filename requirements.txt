@@ -7,3 +7,4 @@ uvicorn>=0.22.0
 python-multipart>=0.0.6
 requests>=2.28.0
 zxing-cpp>=2.2.0
+rapidfuzz>=3.0.0
