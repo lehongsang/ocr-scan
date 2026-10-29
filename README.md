@@ -113,42 +113,43 @@ curl -X POST "http://localhost:8009/ocr/images" \
 
 ---
 
-## 6. API OCR Đơn Thuốc / Toa Thuốc (`/ocr/prescription`)
+## 6. API OCR Đơn Thuốc / Toa Thuốc Thuần Vision (`/ocr/prescription`)
 
 Hệ thống cung cấp endpoint chuyên biệt `/ocr/prescription` để quét và bóc tách thông tin từ **Đơn thuốc / Toa thuốc y tế** (chấp nhận cả ảnh chụp điện thoại và tệp PDF, hỗ trợ cả bản in vi tính lẫn chữ viết tay của bác sĩ).
 
 ### Đặc Điểm Nổi Bật:
-1. **Từ điển chuẩn hóa Cục Quản lý Dược (DAV)**: Tích hợp sẵn cơ sở dữ liệu `drug_names.json` (tối ưu từ `drugs_catalog.cleaned.json` từ 66MB xuống còn ~9.8MB với 44.219 tên thuốc chuẩn).
-2. **Đối chiếu mờ đa tầng (Multi-tier Matching)**:
-   - **Exact Match**: So khớp chính xác 100%.
-   - **Base Name Match**: Bóc tách hàm lượng/dạng dùng để so khớp tên gốc (vd: `Panado Extra` -> `Panadol Extra`, `Augmentin 1g` -> `Augmentin 1g`).
-   - **Active Ingredient Match**: Nhận diện kể cả khi bác sĩ kê đơn theo tên hoạt chất (vd: `Paracetamol`, `Venetoclax`, `Cefuroxim`...).
-   - **Fuzzy Matching (RapidFuzz)**: Tự động sửa lỗi chính tả khi OCR đọc nhầm ký tự hoặc chữ bác sĩ viết ngoáy (vd: `Klarnentin` -> `Klamentin`, `Nexiumm` -> `Nexium`).
-3. **Đầu ra chuẩn y tế**: Trả về trực tiếp mảng danh sách tên thuốc `drug_names` để client sử dụng ngay, kèm đối tượng chi tiết `medications` (tên chuẩn, hoạt chất, hàm lượng, dạng bào chế, số lượng, cách dùng, độ tin cậy `confidence`).
+1. **Thuần Vision & Phân tích trực tiếp (Zero-catalog Dependency)**: Không phụ thuộc vào database dữ liệu thuốc có sẵn, Gemini Vision đọc trực tiếp hình ảnh đơn thuốc, luận giải cả chữ viết tay và suy luận dược lý chuyên môn.
+2. **Trích xuất 8 trường chuẩn cho từng loại thuốc**:
+   - `ten_thuoc`: Tên thuốc / tên biệt dược ghi trên đơn.
+   - `ten_hoat_chat`: Tên hoạt chất chính của thuốc (suy luận dược lý nếu đơn chỉ ghi tên biệt dược).
+   - `ham_luong`: Hàm lượng / nồng độ thuốc.
+   - `don_vi_tinh`: Đơn vị tính (viên, gói, ống, chai, lọ, hộp, tuýp...).
+   - `so_luong`: Số lượng được kê.
+   - `duong_dung`: Đường dùng (Uống, Tiêm bắp, Bôi, Nhỏ mắt...).
+   - `cach_dung`: Hướng dẫn cách dùng, thao tác, quan hệ với bữa ăn (sau ăn no, trước ăn 30 phút...).
+   - `thoi_gian_dung`: Lịch trình, thời điểm dùng trong ngày hoặc điều kiện sử dụng (uống khi sốt > 38*C, sáng 1 viên - tối 1 viên...).
+3. **Thông tin đơn thuốc tổng quát (`prescription_info`)**: Trích xuất tên bệnh nhân, tuổi, giới tính, chẩn đoán bệnh, bác sĩ kê đơn, nơi khám, ngày kê đơn.
 
 ### Cách Gọi API:
 ```bash
 curl -X POST "http://localhost:8009/ocr/prescription" \
-  -F "file=@/duong/dan/don_thuoc.jpg"
+  -F "files=@/duong/dan/don_thuoc.jpg"
 ```
-*(Hoặc truyền file PDF: `-F "file=@/duong/dan/don_thuoc.pdf"`)*
+*(Hoặc truyền file PDF: `-F "files=@/duong/dan/don_thuoc.pdf"`)*
 
 ### Cấu Trúc Response:
 ```json
 {
   "status": "success",
-  "total_medications": 4,
+  "total_medications": 1,
   "drug_names": [
-    "Augmentin 1g",
-    "Panadol Extra",
-    "Nexium",
-    "Klamentin 1g"
+    "Efferalgan"
   ],
   "prescription_info": {
     "patient_name": "Nguyễn Văn An",
-    "age": 35,
+    "age": "35",
     "gender": "Nam",
-    "diagnosis": "Viêm họng cấp, sốt nhẹ",
+    "diagnosis": "Viêm họng cấp, sốt cao",
     "doctor_name": "BS. Trần Anh Tuấn",
     "facility_name": "BỆNH VIỆN ĐA KHOA QUỐC TẾ",
     "date": "21 tháng 10 năm 2026"
@@ -156,17 +157,14 @@ curl -X POST "http://localhost:8009/ocr/prescription" \
   "medications": [
     {
       "stt": "1",
-      "raw_name": "Augmentin 1g",
-      "matched_name": "Augmentin 1g",
-      "base_name": "Augmentin",
-      "active_ingredient": "Amoxicillin; Acid clavulanic",
-      "strength": "1g",
-      "dosage_form": "Viên nén bao phim",
-      "quantity": "14 viên",
-      "usage": "Uống: Sáng 1 viên, tối 1 viên sau ăn",
-      "confidence": 1.0,
-      "match_type": "exact",
-      "is_verified": true
+      "ten_thuoc": "Efferalgan",
+      "ten_hoat_chat": "paracetamol",
+      "ham_luong": "500mg",
+      "don_vi_tinh": "viên",
+      "so_luong": "10",
+      "duong_dung": "Uống",
+      "cach_dung": "uống sau ăn no",
+      "thoi_gian_dung": "uống khi sốt hơn 38*C"
     }
   ],
   "raw_ocr_text": "...",
@@ -178,11 +176,7 @@ curl -X POST "http://localhost:8009/ocr/prescription" \
 
 ## Cấu Trúc Mã Nguồn
 - [src/server.py](file:///c:/Users/Admin/Desktop/ocr/src/server.py): FastAPI REST Server cung cấp các API: Đơn thuốc (`/ocr/prescription`), Hồ sơ Bệnh án (`/ocr/images`, `/ocr/pdf`) & CCCD (`/ocr/cccd`).
-- [src/prescription_parser.py](file:///c:/Users/Admin/Desktop/ocr/src/prescription_parser.py): Engine phân tích đơn thuốc từ ảnh/PDF và tích hợp so khớp từ điển dược.
-- [src/drug_matcher.py](file:///c:/Users/Admin/Desktop/ocr/src/drug_matcher.py): Engine đối chiếu tên thuốc với cơ sở dữ liệu Cục Quản lý Dược (so khớp chính xác, base name, hoạt chất và RapidFuzz).
-- [drug_names.json](file:///c:/Users/Admin/Desktop/ocr/drug_names.json): Bộ từ điển thuốc tinh gọn (44.219 tên thuốc chuẩn hóa, 9.8MB).
-- [drug_names_list.json](file:///c:/Users/Admin/Desktop/ocr/drug_names_list.json): Danh sách phẳng 54.864 tên thuốc rút gọn (1.12MB).
-- [generate_drug_names.py](file:///c:/Users/Admin/Desktop/ocr/generate_drug_names.py): Script chuyển đổi từ `drugs_catalog.cleaned.json` sang từ điển chuẩn hóa.
+- [src/prescription_parser.py](file:///c:/Users/Admin/Desktop/ocr/src/prescription_parser.py): Engine phân tích đơn thuốc thuần Vision (8 trường dữ liệu chuẩn).
 - [src/gemini_vision.py](file:///c:/Users/Admin/Desktop/ocr/src/gemini_vision.py): Gọi Gemini Vision OCR tài liệu và đơn thuốc y tế.
 - [src/cccd/](file:///c:/Users/Admin/Desktop/ocr/src/cccd/): Module chuyên biệt cho OCR CCCD 2 mặt.
 - [src/pdf_processor.py](file:///c:/Users/Admin/Desktop/ocr/src/pdf_processor.py): Kiểm tra định dạng PDF, trích xuất text layer và render PDF sang ảnh.

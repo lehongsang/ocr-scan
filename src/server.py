@@ -227,22 +227,20 @@ async def perform_ocr_images(
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý OCR bệnh án từ ảnh: {str(e)}")
 
 # ==========================================
-# 5. API OCR ĐƠN THUỐC / TOA THUỐC (ẢNH & PDF)
+# 5. API OCR ĐƠN THUỐC / TOA THUỐC (THUẦN VISION)
 # ==========================================
-@app.post("/ocr/prescription", summary="OCR & Trích xuất tên thuốc từ Đơn thuốc (Ảnh / PDF)")
+@app.post("/ocr/prescription", summary="OCR Đơn thuốc thuần Vision (Ảnh / PDF)")
 async def perform_ocr_prescription(
-    files: List[UploadFile] = File(..., description="Chọn một hoặc nhiều tệp tin ảnh hoặc PDF đơn thuốc (JPG, PNG, PDF...)"),
-    engine: str = Form("gemini", description="Engine OCR ('gemini' cho độ chính xác cao nhất cả chữ viết tay, hoặc 'rapidocr')"),
-    threshold: float = Form(75.0, description="Ngưỡng so khớp tên thuốc với danh mục 44.000+ thuốc (0-100)")
+    files: List[UploadFile] = File(..., description="Chọn một hoặc nhiều tệp tin ảnh hoặc PDF đơn thuốc (JPG, PNG, PDF...)")
 ):
     """
     Tiếp nhận ảnh chụp hoặc file PDF đơn thuốc:
-    1. Quét OCR nhận diện văn bản (Gemini Vision chuyên gia y tế hoặc RapidOCR).
-    2. Bóc tách danh sách các thuốc kê trong đơn (tên thuốc, hàm lượng, số lượng, cách dùng).
-    3. Tự động đối chiếu (compare) với danh mục chuẩn Cục Quản lý Dược (DAV) để chuẩn hóa tên thuốc, hoạt chất và dạng bào chế.
-    4. Trả về mảng danh sách tên thuốc `drug_names` cùng chi tiết thuốc `medications`.
+    1. Quét OCR và phân tích cấu trúc trực tiếp thuần Vision (Gemini Vision chuyên gia y tế).
+    2. Bóc tách danh sách thuốc theo đúng 8 trường chuẩn:
+       Tên thuốc | Tên hoạt chất | hàm lượng | đơn vị tính | số lượng | đường dùng | cách dùng | thời gian dùng
+    3. Trả về mảng danh sách tên thuốc `drug_names`, thông tin đơn `prescription_info` và chi tiết thuốc `medications`.
     """
-    from src.prescription_parser import process_prescription_document
+    from src.prescription_parser import process_prescription_document, process_prescription_images
 
     upload_items: List[UploadFile] = [f for f in files if getattr(f, "filename", None)]
     if not upload_items:
@@ -261,13 +259,10 @@ async def perform_ocr_prescription(
             
             return process_prescription_document(
                 file_bytes=content,
-                filename=target_file.filename,
-                engine_type=engine,
-                threshold=threshold
+                filename=target_file.filename
             )
         else:
             # Nhiều trang ảnh ghép lại
-            # Nếu gửi nhiều file ảnh, gộp các ảnh lại
             image_items_bytes = []
             for f in upload_items:
                 c = await f.read()
@@ -277,53 +272,9 @@ async def perform_ocr_prescription(
             if not image_items_bytes:
                 raise HTTPException(status_code=400, detail="Tất cả các tệp tải lên đều rỗng.")
 
-            from src.prescription_parser import extract_prescription_gemini, DrugCatalogMatcher
-            matcher = DrugCatalogMatcher.get_instance()
-            
-            extracted_data = extract_prescription_gemini(image_items_bytes)
-            raw_meds = extracted_data.get("medications", [])
-            matched_medications = []
-            drug_names_list = []
-
-            for item in raw_meds:
-                raw_name = item.get("raw_name") or ""
-                full_query = raw_name
-                if item.get("strength") and item.get("strength") not in raw_name:
-                    full_query = f"{raw_name} {item.get('strength')}"
-
-                match_res = matcher.match_drug_name(full_query, threshold=threshold)
-                if not match_res.get("matched") and raw_name != full_query:
-                    match_res = matcher.match_drug_name(raw_name, threshold=threshold)
-
-                final_drug_name = match_res.get("drug_name") if match_res.get("matched") else raw_name
-                
-                matched_item = {
-                    "stt": item.get("stt", ""),
-                    "raw_name": raw_name,
-                    "matched_name": final_drug_name,
-                    "base_name": match_res.get("base_name", ""),
-                    "active_ingredient": match_res.get("active_ingredient", ""),
-                    "strength": item.get("strength") or match_res.get("strength", ""),
-                    "dosage_form": match_res.get("dosage_form", ""),
-                    "quantity": item.get("quantity") or match_res.get("quantity", ""),
-                    "usage": item.get("usage") or match_res.get("usage", ""),
-                    "confidence": match_res.get("confidence", 0.0),
-                    "match_type": match_res.get("match_type", "none"),
-                    "is_verified": match_res.get("matched", False)
-                }
-                matched_medications.append(matched_item)
-                if final_drug_name and final_drug_name not in drug_names_list:
-                    drug_names_list.append(final_drug_name)
-
-            return {
-                "status": "success",
-                "total_medications": len(matched_medications),
-                "drug_names": drug_names_list,
-                "prescription_info": extracted_data.get("prescription_info", {}),
-                "medications": matched_medications,
-                "raw_ocr_text": extracted_data.get("raw_text", ""),
-                "engine_used": engine
-            }
+            return process_prescription_images(
+                image_items=image_items_bytes
+            )
 
     except HTTPException:
         raise
