@@ -188,7 +188,6 @@ def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, A
     timing = str(item.get("timing") or item.get("thoi_gian_dung") or item.get("thời gian dùng") or item.get("schedule") or "").strip()
 
     return {
-        # --- Chuẩn camelCase DTO cho Backend (DTO / API / DB) ---
         "order": order_val,
         "drugName": drug_name,
         "activeIngredient": active_ingredient,
@@ -197,19 +196,7 @@ def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, A
         "quantity": qty_num,
         "route": route,
         "instructions": instructions,
-        "timing": timing,
-
-        # --- Giữ thêm các alias tiếng Việt & snake_case để tương thích ngược 100% ---
-        "stt": str(order_val),
-        "ten_thuoc": drug_name,
-        "drug_name": drug_name,
-        "ten_hoat_chat": active_ingredient,
-        "ham_luong": strength,
-        "don_vi_tinh": unit,
-        "so_luong": str(qty_num) if qty_num is not None else str(raw_qty or ""),
-        "duong_dung": route,
-        "cach_dung": instructions,
-        "thoi_gian_dung": timing
+        "timing": timing
     }
 
 def parse_prescription_text_rule_based(raw_text: str) -> Dict[str, Any]:
@@ -272,18 +259,7 @@ def parse_prescription_text_rule_based(raw_text: str) -> Dict[str, Any]:
                 "quantity": qty_int,
                 "route": route,
                 "instructions": "Theo chỉ dẫn bác sĩ",
-                "timing": "",
-                # aliases
-                "stt": str(order_int),
-                "ten_thuoc": clean_name.strip(" -:,"),
-                "drug_name": clean_name.strip(" -:,"),
-                "ten_hoat_chat": "",
-                "ham_luong": strength,
-                "don_vi_tinh": unit,
-                "so_luong": str(qty_int) if qty_int is not None else quantity,
-                "duong_dung": route,
-                "cach_dung": "Theo chỉ dẫn bác sĩ",
-                "thoi_gian_dung": ""
+                "timing": ""
             })
             idx += 1
 
