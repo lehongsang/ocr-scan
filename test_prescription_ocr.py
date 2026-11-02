@@ -66,16 +66,16 @@ def run_test():
     for k, v in info.items():
         print(f"  - {k}: {v}")
 
-    print(f"\nBẢNG DỮ LIỆU THUỐC CHI TIẾT (8 trường chuẩn):")
-    header = "STT | Tên thuốc | Tên hoạt chất | Hàm lượng | Đơn vị tính | Số lượng | Đường dùng | Cách dùng | Thời gian dùng"
+    print(f"\nBẢNG DỮ LIỆU THUỐC CHI TIẾT (DTO Backend camelCase):")
+    header = "Order | drugName | activeIngredient | strength | unit | quantity | route | instructions | timing"
     print(header)
     print("-" * len(header) * 2)
 
     for med in result.get("medications", []):
-        row = f"{med.get('stt')} | {med.get('ten_thuoc')} | {med.get('ten_hoat_chat')} | {med.get('ham_luong')} | {med.get('don_vi_tinh')} | {med.get('so_luong')} | {med.get('duong_dung')} | {med.get('cach_dung')} | {med.get('thoi_gian_dung')}"
+        row = f"{med.get('order')} | {med.get('drugName')} | {med.get('activeIngredient')} | {med.get('strength')} | {med.get('unit')} | {med.get('quantity')} | {med.get('route')} | {med.get('instructions')} | {med.get('timing')}"
         print(row)
 
-    print("\nJSON OUTPUT:")
+    print("\nJSON OUTPUT (DTO):")
     print(json.dumps(result.get("medications"), ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":

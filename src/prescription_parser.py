@@ -14,18 +14,19 @@ from src.config import GEMINI_API_KEY, GEMINI_TEMPERATURE, GEMINI_VISION_MODEL
 from src.gemini_vision import _get_image_mime_type
 
 PRESCRIPTION_SYSTEM_PROMPT = """Bạn là một chuyên gia y tế và dược sĩ có kinh nghiệm phân tích đơn thuốc, toa thuốc, phiếu khám bệnh (bao gồm cả bản in máy tính và chữ viết tay của bác sĩ).
-Nhiệm vụ của bạn là đọc toàn bộ hình ảnh đơn thuốc này và phân tích trực tiếp thuần túy từ thị giác (Vision OCR) để bóc tách cấu trúc dữ liệu chính xác thành định dạng JSON chuẩn.
+Nhiệm vụ của bạn là đọc toàn bộ hình ảnh đơn thuốc này và phân tích trực tiếp thuần túy từ thị giác (Vision OCR) để bóc tách cấu trúc dữ liệu chính xác thành định dạng JSON chuẩn theo các trường DTO (camelCase).
 
 Yêu cầu nghiêm ngặt cho từng loại thuốc kê trong đơn:
-Trích xuất đúng và đầy đủ 8 trường dữ liệu sau cho mỗi thuốc (nếu có thông tin thì điền, nếu không có thì để chuỗi rỗng ""):
-1. "ten_thuoc": Tên thuốc / biệt dược ghi trên đơn (VD: efferalgan, Augmentin, Nexium, Panadol Extra...).
-2. "ten_hoat_chat": Tên hoạt chất chính của thuốc. Nếu trên đơn có ghi rõ hoạt chất thì trích xuất; nếu đơn chỉ ghi tên biệt dược thì dựa vào kiến thức dược lý chuyên môn để xác định chính xác tên hoạt chất (VD: efferalgan -> paracetamol, Augmentin -> amoxicillin + acid clavulanic, Nexium -> esomeprazole; nếu không xác định được thì để "").
-3. "ham_luong": Hàm lượng hoặc nồng độ của thuốc ghi trên đơn (VD: 500mg, 1g, 40mg, 250mg/5ml, 0.5%...).
-4. "don_vi_tinh": Đơn vị tính của thuốc (VD: viên, gói, chai, lọ, ống, tuýp, vỉ, hộp, tép...).
-5. "so_luong": Số lượng thuốc được kê, chỉ ghi số hoặc định lượng (VD: 10, 14, 1, 20...).
-6. "duong_dung": Đường dùng thuốc (VD: Uống, Tiêm bắp, Tiêm tĩnh mạch, Bôi ngoài da, Nhỏ mắt, Nhỏ tai, Đặt hậu môn, Đặt dưới lưỡi, Hít/Khí dung...).
-7. "cach_dung": Hướng dẫn chi tiết về cách dùng, thời điểm dùng so với bữa ăn hoặc cách thao tác (VD: uống sau ăn no, uống trước ăn 30 phút, hòa tan trong 100ml nước, thoa một lớp mỏng...).
-8. "thoi_gian_dung": Thời điểm hoặc lịch trình dùng thuốc trong ngày, khoảng cách giữa các lần, hoặc điều kiện triệu chứng khi dùng (VD: uống khi sốt hơn 38*C, sáng 1 viên - tối 1 viên, ngày 2 lần mỗi lần cách 4-6 tiếng, dùng trong 5 ngày...).
+Trích xuất đúng và đầy đủ các trường dữ liệu sau cho mỗi thuốc (nếu có thông tin thì điền, nếu không có thì để chuỗi rỗng "" hoặc null):
+1. "order": Số thứ tự của thuốc trong đơn (số nguyên 1, 2, 3...).
+2. "drugName": Tên thuốc / biệt dược ghi trên đơn (VD: Efferalgan, Augmentin, Nexium, Panadol Extra...).
+3. "activeIngredient": Tên hoạt chất chính của thuốc. Nếu trên đơn có ghi rõ hoạt chất thì trích xuất; nếu đơn chỉ ghi tên biệt dược thì dựa vào kiến thức dược lý chuyên môn để xác định chính xác tên hoạt chất (VD: Efferalgan -> Paracetamol, Augmentin -> Amoxicillin + Acid clavulanic, Nexium -> Esomeprazole; nếu không xác định được thì để "").
+4. "strength": Hàm lượng hoặc nồng độ của thuốc ghi trên đơn (VD: 500mg, 1g, 40mg, 250mg/5ml, 0.5%...).
+5. "unit": Đơn vị tính của thuốc (VD: viên, gói, chai, lọ, ống, tuýp, vỉ, hộp, tép...).
+6. "quantity": Số lượng thuốc được kê dạng số (VD: 10, 14, 1, 20...). Nếu không có thì để null.
+7. "route": Đường dùng thuốc (VD: Uống, Tiêm bắp, Tiêm tĩnh mạch, Bôi ngoài da, Nhỏ mắt, Nhỏ tai, Đặt hậu môn, Đặt dưới lưỡi, Hít/Khí dung...). Mặc định là "Uống" nếu là dạng viên uống.
+8. "instructions": Hướng dẫn chi tiết về cách dùng, cách pha, thời điểm dùng so với bữa ăn hoặc cách thao tác (VD: uống sau ăn no, uống trước ăn 30 phút, hòa tan trong 100ml nước, thoa một lớp mỏng...).
+9. "timing": Thời điểm hoặc lịch trình dùng thuốc trong ngày, khoảng cách giữa các lần, hoặc điều kiện triệu chứng khi dùng (VD: ngày 2 lần sáng 1 viên - tối 1 viên, uống khi sốt hơn 38.5*C, dùng trong 5 ngày...).
 
 Ngoài ra, trích xuất:
 - "prescription_info": Thông tin hành chính của đơn thuốc:
@@ -51,15 +52,15 @@ CHỈ TRẢ VỀ DUY NHẤT ĐỊNH DẠNG JSON hợp lệ theo cấu trúc sau,
   },
   "medications": [
     {
-      "stt": 1,
-      "ten_thuoc": "efferalgan",
-      "ten_hoat_chat": "paracetamon",
-      "ham_luong": "500mg",
-      "don_vi_tinh": "viên",
-      "so_luong": "10",
-      "duong_dung": "Uống",
-      "cach_dung": "uống sau ăn no",
-      "thoi_gian_dung": "uống khi sốt hơn 38*C"
+      "order": 1,
+      "drugName": "Efferalgan",
+      "activeIngredient": "Paracetamol",
+      "strength": "500mg",
+      "unit": "viên",
+      "quantity": 10,
+      "route": "Uống",
+      "instructions": "uống sau ăn no",
+      "timing": "uống khi sốt hơn 38*C"
     }
   ],
   "raw_text": ""
@@ -152,35 +153,69 @@ def extract_prescription_gemini(
 
 def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, Any]:
     """
-    Chuẩn hóa dữ liệu từng dòng thuốc theo đúng 8 trường chuẩn:
-    Tên thuốc | Tên hoạt chất | hàm lượng | đơn vị tính | số lượng | đường dùng | cách dùng | thời gian dùng
+    Chuẩn hóa dữ liệu từng dòng thuốc theo đúng chuẩn DTO Backend (camelCase) và tương thích ngược alias tiếng Việt:
+    drugName | activeIngredient | strength | unit | quantity | route | instructions | timing | order
     """
-    stt = str(item.get("stt") or idx).strip()
-    ten_thuoc = str(item.get("ten_thuoc") or item.get("Tên thuốc") or item.get("raw_name") or item.get("name") or "").strip()
-    ten_hoat_chat = str(item.get("ten_hoat_chat") or item.get("Tên hoạt chất") or item.get("active_ingredient") or item.get("hoat_chat") or "").strip()
-    ham_luong = str(item.get("ham_luong") or item.get("hàm lượng") or item.get("strength") or "").strip()
-    don_vi_tinh = str(item.get("don_vi_tinh") or item.get("đơn vị tính") or item.get("unit") or item.get("dvt") or "").strip()
-    so_luong = str(item.get("so_luong") or item.get("số lượng") or item.get("quantity") or item.get("sl") or "").strip()
-    duong_dung = str(item.get("duong_dung") or item.get("đường dùng") or item.get("route") or "").strip()
-    cach_dung = str(item.get("cach_dung") or item.get("cách dùng") or item.get("usage") or item.get("instruction") or "").strip()
-    thoi_gian_dung = str(item.get("thoi_gian_dung") or item.get("thời gian dùng") or item.get("timing") or item.get("schedule") or "").strip()
+    raw_order = item.get("order") if item.get("order") is not None else (item.get("stt") or item.get("index") or idx)
+    try:
+        order_val = int(raw_order)
+    except (ValueError, TypeError):
+        order_val = idx
+
+    drug_name = str(item.get("drugName") or item.get("drug_name") or item.get("ten_thuoc") or item.get("Tên thuốc") or item.get("raw_name") or item.get("name") or "").strip()
+    active_ingredient = str(item.get("activeIngredient") or item.get("active_ingredient") or item.get("ten_hoat_chat") or item.get("Tên hoạt chất") or item.get("hoat_chat") or "").strip()
+    strength = str(item.get("strength") or item.get("ham_luong") or item.get("hàm lượng") or item.get("dosage") or "").strip()
+    unit = str(item.get("unit") or item.get("don_vi_tinh") or item.get("đơn vị tính") or item.get("dvt") or "").strip()
+
+    raw_qty = item.get("quantity") if item.get("quantity") is not None else (item.get("so_luong") or item.get("số lượng") or item.get("sl"))
+    qty_num: Optional[float] = None
+    if raw_qty is not None:
+        if isinstance(raw_qty, (int, float)):
+            qty_num = raw_qty
+        else:
+            clean_q = re.sub(r'[^\d\.]', '', str(raw_qty).replace(',', '.'))
+            if clean_q:
+                try:
+                    qty_num = int(clean_q) if '.' not in clean_q else float(clean_q)
+                except ValueError:
+                    qty_num = None
+
+    route = str(item.get("route") or item.get("duong_dung") or item.get("đường dùng") or "").strip()
+    if not route:
+        route = "Uống"
+
+    instructions = str(item.get("instructions") or item.get("cach_dung") or item.get("cách dùng") or item.get("usage") or item.get("instruction") or "").strip()
+    timing = str(item.get("timing") or item.get("thoi_gian_dung") or item.get("thời gian dùng") or item.get("schedule") or "").strip()
 
     return {
-        "stt": stt,
-        "ten_thuoc": ten_thuoc,
-        "ten_hoat_chat": ten_hoat_chat,
-        "ham_luong": ham_luong,
-        "don_vi_tinh": don_vi_tinh,
-        "so_luong": so_luong,
-        "duong_dung": duong_dung,
-        "cach_dung": cach_dung,
-        "thoi_gian_dung": thoi_gian_dung
+        # --- Chuẩn camelCase DTO cho Backend (DTO / API / DB) ---
+        "order": order_val,
+        "drugName": drug_name,
+        "activeIngredient": active_ingredient,
+        "strength": strength,
+        "unit": unit,
+        "quantity": qty_num,
+        "route": route,
+        "instructions": instructions,
+        "timing": timing,
+
+        # --- Giữ thêm các alias tiếng Việt & snake_case để tương thích ngược 100% ---
+        "stt": str(order_val),
+        "ten_thuoc": drug_name,
+        "drug_name": drug_name,
+        "ten_hoat_chat": active_ingredient,
+        "ham_luong": strength,
+        "don_vi_tinh": unit,
+        "so_luong": str(qty_num) if qty_num is not None else str(raw_qty or ""),
+        "duong_dung": route,
+        "cach_dung": instructions,
+        "thoi_gian_dung": timing
     }
 
 def parse_prescription_text_rule_based(raw_text: str) -> Dict[str, Any]:
     """
     Bóc tách danh sách thuốc từ text thô bằng Rule-based & Regex (cho OCR offline / RapidOCR fallback).
-    Không sử dụng database thuốc, bóc tách trực tiếp theo cấu trúc dòng thành 8 trường dữ liệu.
+    Không sử dụng database thuốc, bóc tách trực tiếp theo cấu trúc dòng thành các trường DTO.
     """
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
     medications = []
@@ -225,13 +260,27 @@ def parse_prescription_text_rule_based(raw_text: str) -> Dict[str, Any]:
             if strength and strength in clean_name:
                 clean_name = clean_name.replace(strength, "").strip()
 
+            order_int = int(stt) if stt.isdigit() else idx
+            qty_int = int(quantity) if quantity and quantity.isdigit() else None
+
             medications.append({
-                "stt": stt,
+                "order": order_int,
+                "drugName": clean_name.strip(" -:,"),
+                "activeIngredient": "",
+                "strength": strength,
+                "unit": unit,
+                "quantity": qty_int,
+                "route": route,
+                "instructions": "Theo chỉ dẫn bác sĩ",
+                "timing": "",
+                # aliases
+                "stt": str(order_int),
                 "ten_thuoc": clean_name.strip(" -:,"),
+                "drug_name": clean_name.strip(" -:,"),
                 "ten_hoat_chat": "",
                 "ham_luong": strength,
                 "don_vi_tinh": unit,
-                "so_luong": quantity,
+                "so_luong": str(qty_int) if qty_int is not None else quantity,
                 "duong_dung": route,
                 "cach_dung": "Theo chỉ dẫn bác sĩ",
                 "thoi_gian_dung": ""
@@ -250,8 +299,8 @@ def process_prescription_images(
 ) -> Dict[str, Any]:
     """
     Hàm phân tích đơn thuốc thuần Vision bằng Gemini Vision.
-    Tự động đọc và bóc tách trực tiếp 8 trường dữ liệu:
-    Tên thuốc | Tên hoạt chất | hàm lượng | đơn vị tính | số lượng | đường dùng | cách dùng | thời gian dùng
+    Tự động đọc và bóc tách trực tiếp các trường DTO:
+    drugName | activeIngredient | strength | unit | quantity | route | instructions | timing | order
     """
     extracted_data = extract_prescription_gemini(image_items)
     raw_ocr_text = extracted_data.get("raw_text", "")
@@ -263,8 +312,9 @@ def process_prescription_images(
     for i, item in enumerate(raw_meds, 1):
         norm_item = normalize_medication_item(item, idx=i)
         normalized_meds.append(norm_item)
-        if norm_item["ten_thuoc"] and norm_item["ten_thuoc"] not in drug_names:
-            drug_names.append(norm_item["ten_thuoc"])
+        target_name = norm_item.get("drugName") or norm_item.get("ten_thuoc")
+        if target_name and target_name not in drug_names:
+            drug_names.append(target_name)
 
     return {
         "status": "success",
