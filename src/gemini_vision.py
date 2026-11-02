@@ -8,8 +8,8 @@ import requests
 from src.utils import logger
 from src.config import GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TEMPERATURE
 
-# Mặc định sử dụng model gemini-3.5-flash-lite hoặc gemini-3.8-flash
-VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-3.5-flash-lite")
+# Mặc định sử dụng model gemini-3.5-flash hoặc gemini-3.5-flash-lite
+VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-3.5-flash")
 
 DEFAULT_OCR_PROMPT = (
     "Bạn là một chuyên gia OCR tài liệu có độ chính xác cao. "
@@ -60,7 +60,7 @@ def ocr_image_gemini(
     # Danh sách các model thử nghiệm theo thứ tự ưu tiên
     primary_model = model or VISION_MODEL
     candidate_models = [primary_model]
-    for fallback in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"]:
+    for fallback in ["gemini-3.5-flash", "gemini-3.5-flash-lite"]:
         if fallback not in candidate_models:
             candidate_models.append(fallback)
 
@@ -98,7 +98,7 @@ def ocr_image_gemini(
         # Thử gọi API (tối đa 2 lần cho mỗi model nếu gặp 503 hoặc 429)
         for attempt in range(2):
             try:
-                response = requests.post(url, json=payload, headers=headers, timeout=20)
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
                 if response.status_code == 200:
                     resp_json = response.json()
                     candidates = resp_json.get("candidates", [])
@@ -110,7 +110,8 @@ def ocr_image_gemini(
                 # Nếu bị 503 (High Demand) hoặc 429 (Rate Limit)
                 if response.status_code in (503, 429):
                     last_error = f"Model {current_model} trả về {response.status_code} (quá tải)"
-                    time.sleep(1.0)
+                    logger.warning(f"Gemini Vision {current_model} (lần thử {attempt + 1}/2) trả về HTTP {response.status_code}. Đang thử lại...")
+                    time.sleep(1.5)
                     continue
 
                 # Lỗi khác (400, 404, etc.)
@@ -122,10 +123,12 @@ def ocr_image_gemini(
                 except Exception:
                     pass
                 last_error = f"Lỗi Gemini Vision ({response.status_code}): {err_text}"
+                logger.warning(f"Gemini Vision {current_model} gặp lỗi: {last_error}")
                 break
 
             except requests.RequestException as e:
                 last_error = f"Lỗi kết nối tới {current_model}: {str(e)}"
-                time.sleep(0.5)
+                logger.warning(f"Gemini Vision {current_model} exception: {last_error}")
+                time.sleep(1.0)
 
     raise RuntimeError(f"Không thể OCR ảnh qua Gemini Vision sau khi thử các model: {last_error}")
