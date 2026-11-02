@@ -191,7 +191,6 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         gemini_schema = convert_to_gemini_schema(disease_schema_dict)
         
         # 4. Gửi request Gemini API với prompt tối ưu & tham số sinh siêu tốc
-        url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
         prompt = (
             "Bạn là chuyên gia y tế. Hãy phân tích đoạn chẩn đoán sau và xác định các bệnh lý có mặt "
             "(gán true cho các bệnh lý thực sự được chẩn đoán xác định).\n"
@@ -217,23 +216,33 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         
         headers = {"Content-Type": "application/json"}
         
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        models_to_try = [GEMINI_MODEL]
+        for fb in ["gemini-3.5-flash", "gemini-3.5-flash-lite"]:
+            if fb not in models_to_try:
+                models_to_try.append(fb)
         
-        if response.status_code == 200:
-            resp_json = response.json()
-            candidates = resp_json.get("candidates", [])
-            if candidates:
-                text_content = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                gemini_data = json.loads(text_content)
-                
-                # Merge dữ liệu bệnh lý từ Gemini vào regex_data
-                for sec_name, fields in gemini_data.items():
-                    if sec_name in regex_data and isinstance(fields, dict):
-                        for f_name, f_val in fields.items():
-                            if f_val is True or regex_data[sec_name].get(f_name) is True:
-                                regex_data[sec_name][f_name] = True
-                            elif regex_data[sec_name].get(f_name) is None:
-                                regex_data[sec_name][f_name] = f_val
+        for cur_model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={GEMINI_API_KEY}"
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=15)
+                if response.status_code == 200:
+                    resp_json = response.json()
+                    candidates = resp_json.get("candidates", [])
+                    if candidates:
+                        text_content = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                        gemini_data = json.loads(text_content)
+                        
+                        # Merge dữ liệu bệnh lý từ Gemini vào regex_data
+                        for sec_name, fields in gemini_data.items():
+                            if sec_name in regex_data and isinstance(fields, dict):
+                                for f_name, f_val in fields.items():
+                                    if f_val is True or regex_data[sec_name].get(f_name) is True:
+                                        regex_data[sec_name][f_name] = True
+                                    elif regex_data[sec_name].get(f_name) is None:
+                                        regex_data[sec_name][f_name] = f_val
+                        break
+            except Exception:
+                continue
                                 
     except Exception as e:
         # Nếu có lỗi kết nối/API, giữ lại kết quả từ Regex

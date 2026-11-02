@@ -24,9 +24,9 @@ if (not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_API_KEY") and os.path.exists(_
     except Exception:
         pass
 
-# Model Gemini mặc định (gemini-3.8-flash hoặc cấu hình từ môi trường)
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-3.8-flash")
+# Model Gemini mặc định (gemini-3.5-flash hoặc cấu hình từ môi trường)
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-3.5-flash")
 
 # Đường dẫn URL API của Gemini
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"

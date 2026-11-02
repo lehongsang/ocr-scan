@@ -60,7 +60,7 @@ def ocr_image_gemini(
     # Danh sách các model thử nghiệm theo thứ tự ưu tiên
     primary_model = model or VISION_MODEL
     candidate_models = [primary_model]
-    for fallback in ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]:
+    for fallback in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"]:
         if fallback not in candidate_models:
             candidate_models.append(fallback)
 
@@ -95,10 +95,10 @@ def ocr_image_gemini(
     for current_model in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={key}"
         
-        # Thử gọi API (tối đa 2 lần cho mỗi model nếu gặp 503)
+        # Thử gọi API (tối đa 2 lần cho mỗi model nếu gặp 503 hoặc 429)
         for attempt in range(2):
             try:
-                response = requests.post(url, json=payload, headers=headers, timeout=35)
+                response = requests.post(url, json=payload, headers=headers, timeout=20)
                 if response.status_code == 200:
                     resp_json = response.json()
                     candidates = resp_json.get("candidates", [])

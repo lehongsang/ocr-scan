@@ -100,7 +100,7 @@ def extract_prescription_gemini(
         "text": PRESCRIPTION_SYSTEM_PROMPT
     })
 
-    candidate_models = [GEMINI_VISION_MODEL, "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
+    candidate_models = [GEMINI_VISION_MODEL, "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
     seen = set()
     unique_models = []
     for m in candidate_models:
@@ -123,7 +123,7 @@ def extract_prescription_gemini(
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
         for attempt in range(2):
             try:
-                resp = requests.post(url, headers=headers, json=payload, timeout=40)
+                resp = requests.post(url, headers=headers, json=payload, timeout=20)
                 if resp.status_code == 200:
                     data = resp.json()
                     candidates = data.get("candidates", [])
@@ -138,14 +138,15 @@ def extract_prescription_gemini(
                             text_clean = text_clean[:-3]
                         return json.loads(text_clean.strip())
                 elif resp.status_code in (429, 503):
-                    time.sleep(1.5)
+                    last_error = f"Model {model_name} HTTP {resp.status_code} (quá tải)"
+                    time.sleep(1.0)
                     continue
                 else:
                     last_error = f"Model {model_name} HTTP {resp.status_code}: {resp.text}"
                     break
             except Exception as e:
                 last_error = f"Model {model_name} error: {str(e)}"
-                time.sleep(1)
+                time.sleep(0.5)
 
     raise RuntimeError(f"Không thể phân tích đơn thuốc qua Gemini Vision: {last_error}")
 
