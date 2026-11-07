@@ -217,7 +217,7 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         headers = {"Content-Type": "application/json"}
         
         models_to_try = [GEMINI_MODEL]
-        for fb in ["gemini-3.5-flash", "gemini-3.5-flash-lite"]:
+        for fb in ["gemini-3.5-flash-lite", "gemini-3.5-flash"]:
             if fb not in models_to_try:
                 models_to_try.append(fb)
         

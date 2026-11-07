@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import argparse
 import glob
 
@@ -22,6 +23,8 @@ def process_pdf(pdf_path: str, output_txt_path: str = None, force_ocr: bool = Fa
     2. Trích xuất trực tiếp nếu là Digital PDF (tiết kiệm thời gian, dưới 0.1s).
     3. Chạy OCR song song nếu là Scanned PDF hoặc khi người dùng bắt buộc (force_ocr).
     """
+    t_total_start = time.perf_counter()
+    t_ocr_start = time.perf_counter()
     ext = os.path.splitext(pdf_path.lower())[1]
     
     # Nếu là hình ảnh thông thường
@@ -56,6 +59,8 @@ def process_pdf(pdf_path: str, output_txt_path: str = None, force_ocr: bool = Fa
         for page_num in sorted(results.keys()):
             output_content.append(f"=== TRANG {page_num} ===\n{results[page_num]}\n")
         final_text = "\n".join(output_content)
+
+    ocr_time_ms = round((time.perf_counter() - t_ocr_start) * 1000, 2)
     
     # Bước 2: Lưu kết quả ra file nếu được chỉ định
     if output_txt_path and final_text:
@@ -70,6 +75,7 @@ def process_pdf(pdf_path: str, output_txt_path: str = None, force_ocr: bool = Fa
             schema_path = os.path.join(os.path.dirname(__file__), "schema.json")
             
             logger.info("Bắt đầu trích xuất trường thông tin bằng Gemini API...")
+            t_gemini_start = time.perf_counter()
             from src.config import GEMINI_API_KEY
             if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_API_KEY":
                 from src.parser import parse_medical_fields_gemini
@@ -78,6 +84,17 @@ def process_pdf(pdf_path: str, output_txt_path: str = None, force_ocr: bool = Fa
                 logger.warning("Chưa cấu hình GEMINI_API_KEY, tự động chuyển sang chế độ phân tích Regex offline...")
                 from src.parser import parse_medical_fields
                 structured_data = parse_medical_fields(final_text)
+            gemini_time_ms = round((time.perf_counter() - t_gemini_start) * 1000, 2)
+            total_time_ms = round((time.perf_counter() - t_total_start) * 1000, 2)
+
+            timing_info = {
+                "ocr_time_ms": ocr_time_ms,
+                "gemini_time_ms": gemini_time_ms,
+                "total_time_ms": total_time_ms
+            }
+            structured_data["TIMING"] = timing_info
+            structured_data["timing"] = timing_info
+            structured_data["ENGINE_USED"] = f"{engine_type} + gemini_ai" if (GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_API_KEY") else f"{engine_type} + regex"
                 
             # Lưu file JSON kết quả
             import json

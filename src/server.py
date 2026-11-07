@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import shutil
 import tempfile
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -156,17 +157,17 @@ async def perform_ocr_cccd(
 
 
 # ==========================================
-# 4. API OCR ẢNH BỆNH ÁN & TRÍCH XUẤT THÔNG TIN (GEMINI VISION)
+# 4. API OCR ẢNH BỆNH ÁN & TRÍCH XUẤT THÔNG TIN (RAPIDOCR + GEMINI AI)
 # ==========================================
-@app.post("/ocr/images", summary="OCR & Trích xuất Bệnh án từ ảnh (Choose Files)")
+@app.post("/ocr/images", summary="OCR & Trích xuất Bệnh án từ ảnh (RapidOCR + Gemini AI)")
 async def perform_ocr_images(
     files: List[UploadFile] = File(..., description="Chọn một hoặc nhiều file ảnh bệnh án (PNG, JPG, JPEG, WEBP, BMP...)")
 ):
     """
     Tiếp nhận 1 hoặc nhiều file ảnh bệnh án tải lên:
-    1. Quét OCR đọc chữ bằng Gemini Vision.
-    2. Tự động bóc tách và fill vào các trường bệnh nền, thông tin bệnh nhân, chỉ số sinh lý...
-    3. Trả về cấu trúc JSON y khoa chuẩn giống hệt API OCR PDF (/ocr/pdf).
+    1. Quét OCR khoanh vùng & đọc text thô bằng RapidOCR.
+    2. Tự động bóc tách ngữ nghĩa và fill vào các trường bệnh nền, thông tin bệnh nhân, chỉ số sinh lý bằng Gemini AI.
+    3. Trả về cấu trúc JSON y khoa chuẩn kèm thông tin đo thời gian từng công đoạn (TIMING).
     """
     if not files:
         raise HTTPException(status_code=400, detail="Không có tệp tin ảnh nào được tải lên.")
@@ -183,14 +184,19 @@ async def perform_ocr_images(
         raise HTTPException(status_code=400, detail="Tất cả các tệp tin ảnh tải lên đều rỗng.")
 
     try:
-        # Bước 1: Quét OCR toàn bộ các ảnh bằng Gemini Vision
+        t_total_start = time.perf_counter()
+
+        # Bước 1: Quét OCR khoanh vùng & đọc toàn bộ các ảnh bằng RapidOCR
+        t_ocr_start = time.perf_counter()
         result = ocr_multiple_images(
             image_items=image_items,
-            engine_type="gemini"
+            engine_type="rapidocr"
         )
+        ocr_time_ms = round((time.perf_counter() - t_ocr_start) * 1000, 2)
         final_text = result.get("combined_text", "")
 
-        # Bước 2: Bóc tách thông tin bệnh nhân, bệnh lý nền & chỉ số sinh lý (giống hệt OCR PDF)
+        # Bước 2: Bóc tách thông tin bệnh nhân, bệnh lý nền & chỉ số sinh lý bằng Gemini AI
+        t_gemini_start = time.perf_counter()
         schema_path = os.path.join(os.path.dirname(__file__), "schema.json")
         from src.config import GEMINI_API_KEY
         if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_API_KEY":
@@ -199,6 +205,7 @@ async def perform_ocr_images(
         else:
             from src.parser import parse_medical_fields
             structured_data = parse_medical_fields(final_text)
+        gemini_time_ms = round((time.perf_counter() - t_gemini_start) * 1000, 2)
 
         # Bước 3: Định vị chi tiết nguồn gốc dữ liệu (trang nào, dòng nào, file nào)
         from src.parser import extract_data_provenance
@@ -220,6 +227,16 @@ async def perform_ocr_images(
             for item in raw_pages
         ]
         structured_data["RAW_OCR_TEXT"] = final_text
+        total_time_ms = round((time.perf_counter() - t_total_start) * 1000, 2)
+
+        timing_info = {
+            "ocr_time_ms": ocr_time_ms,
+            "gemini_time_ms": gemini_time_ms,
+            "total_time_ms": total_time_ms
+        }
+        structured_data["TIMING"] = timing_info
+        structured_data["timing"] = timing_info
+        structured_data["ENGINE_USED"] = "rapidocr + gemini_ai"
 
         return structured_data
 
@@ -227,18 +244,17 @@ async def perform_ocr_images(
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý OCR bệnh án từ ảnh: {str(e)}")
 
 # ==========================================
-# 5. API OCR ĐƠN THUỐC / TOA THUỐC (THUẦN VISION)
+# 5. API OCR ĐƠN THUỐC / TOA THUỐC (RAPIDOCR + GEMINI AI)
 # ==========================================
-@app.post("/ocr/prescription", summary="OCR Đơn thuốc thuần Vision (Ảnh / PDF)")
+@app.post("/ocr/prescription", summary="OCR Đơn thuốc (RapidOCR + Gemini AI)")
 async def perform_ocr_prescription(
     files: List[UploadFile] = File(..., description="Chọn một hoặc nhiều tệp tin ảnh hoặc PDF đơn thuốc (JPG, PNG, PDF...)")
 ):
     """
     Tiếp nhận ảnh chụp hoặc file PDF đơn thuốc:
-    1. Quét OCR và phân tích cấu trúc trực tiếp thuần Vision (Gemini Vision chuyên gia y tế).
-    2. Bóc tách danh sách thuốc theo đúng 8 trường chuẩn:
-       Tên thuốc | Tên hoạt chất | hàm lượng | đơn vị tính | số lượng | đường dùng | cách dùng | thời gian dùng
-    3. Trả về mảng danh sách tên thuốc `drug_names`, thông tin đơn `prescription_info` và chi tiết thuốc `medications`.
+    1. Quét OCR khoanh vùng & đọc text thô bằng RapidOCR.
+    2. Phân tích ngữ nghĩa y tế, hiệu đính lỗi ký tự & bóc tách cấu trúc chuẩn DTO bằng Gemini AI.
+    3. Trả về mảng danh sách tên thuốc `drug_names`, thông tin đơn `prescription_info`, chi tiết thuốc `medications` và `timing` đo đạc từng công đoạn.
     """
     from src.prescription_parser import process_prescription_document, process_prescription_images
 
@@ -292,9 +308,9 @@ async def health_check():
     return {
         "status": "healthy",
         "supported_apis": [
-            {"endpoint": "/ocr/prescription", "method": "POST", "description": "OCR Đơn thuốc / Toa thuốc & Trích xuất tên thuốc (Ảnh/PDF)"},
-            {"endpoint": "/ocr/images", "method": "POST", "description": "OCR ảnh Hồ sơ bệnh án bằng Gemini Vision (Chọn 1 hoặc nhiều ảnh)"},
-            {"endpoint": "/ocr/pdf", "method": "POST", "description": "OCR Hồ sơ Bệnh án Y tế (PDF)"},
+            {"endpoint": "/ocr/prescription", "method": "POST", "description": "OCR Đơn thuốc / Toa thuốc bằng RapidOCR + Gemini AI (Ảnh/PDF)"},
+            {"endpoint": "/ocr/images", "method": "POST", "description": "OCR ảnh Hồ sơ bệnh án bằng RapidOCR + Gemini AI (Chọn 1 hoặc nhiều ảnh)"},
+            {"endpoint": "/ocr/pdf", "method": "POST", "description": "OCR Hồ sơ Bệnh án Y tế bằng RapidOCR + Gemini AI (PDF)"},
             {"endpoint": "/ocr/cccd", "method": "POST", "description": "OCR Căn cước công dân 1 & 2 mặt (Image/QR/PDF)"}
         ]
     }
