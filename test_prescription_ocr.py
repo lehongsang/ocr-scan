@@ -67,12 +67,12 @@ def run_test():
         print(f"  - {k}: {v}")
 
     print(f"\nBẢNG DỮ LIỆU THUỐC CHI TIẾT (DTO Backend camelCase):")
-    header = "Order | drugName | activeIngredient | strength | unit | quantity | route | instructions | timing"
+    header = "Order | drugName | activeIngredient | activeIngredients | strength | unit | quantity | route | instructions | timing"
     print(header)
     print("-" * len(header) * 2)
 
     for med in result.get("medications", []):
-        row = f"{med.get('order')} | {med.get('drugName')} | {med.get('activeIngredient')} | {med.get('strength')} | {med.get('unit')} | {med.get('quantity')} | {med.get('route')} | {med.get('instructions')} | {med.get('timing')}"
+        row = f"{med.get('order')} | {med.get('drugName')} | {med.get('activeIngredient')} | {med.get('activeIngredients')} | {med.get('strength')} | {med.get('unit')} | {med.get('quantity')} | {med.get('route')} | {med.get('instructions')} | {med.get('timing')}"
         print(row)
 
     print("\nJSON OUTPUT (DTO):")

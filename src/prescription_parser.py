@@ -44,12 +44,17 @@ CÁC NGUYÊN TẮC BẮT BUỘC (NGHIÊM NGẶT - TUÂN THỦ 100%):
 
 Yêu cầu các trường cho từng loại thuốc:
 - "order": Số thứ tự nguyên 1, 2, 3...
-- "drugName": Tên biệt dược / tên thương phẩm thuốc.
-- "activeIngredient": Tên hoạt chất chính / tên gốc hóa học.
+- "drugName": Tên biệt dược / tên thương phẩm thuốc in trên đơn.
+- "activeIngredient": Chuỗi nguyên văn mô tả hoạt chất ghi trên đơn (để hiển thị hồ sơ bệnh án).
+- "activeIngredients": MẢNG DANH SÁCH (array of strings) các hoạt chất y khoa cấu thành nên thuốc, đã được tách riêng và làm sạch danh pháp gốc để tra cứu Dược thư:
+  * Nếu là thuốc đơn chất: Trả về mảng 1 phần tử đã làm sạch hàm lượng (Ví dụ: "Paracetamol 500mg" -> ["Paracetamol"]).
+  * Nếu là thuốc phối hợp có dấu "+", "/", "và", "&": Tách riêng từng hoạt chất thành từng phần tử độc lập (Ví dụ: "Acetylsalicylic acid + clopidogrel" -> ["Acetylsalicylic acid", "Clopidogrel"]).
+  * Loại bỏ các phần trăm, tỷ lệ và ghi chú trong ngoặc đơn khỏi tên hoạt chất (Ví dụ: "Insulin người tái tổ hợp (30% insulin hòa tan & 70% insulin isophan)" -> ["Insulin người", "Insulin isophan"]).
+  * Viết hoa chữ cái đầu cho mỗi hoạt chất.
 - "strength": Hàm lượng (VD: 500mg, 1g, 40mg, 25mcg...).
 - "unit": Đơn vị tính (VD: viên, gói, chai, lọ, ống, tuýp, vỉ, hộp...).
 - "quantity": Số lượng thuốc kê dạng số nguyên (VD: 10, 14, 60...). Nếu không có thì để null.
-- "route": Đường dùng (VD: Uống, Tiêm bắp, Tiêm tĩnh mạch, Bôi ngoài da, Nhỏ mắt, Nhỏ tai...). Mặc định là "Uống" nếu là dạng viên.
+- "route": Đường dùng (VD: Uống, Tiêm bắp, Tiêm dưới da, Tiêm tĩnh mạch, Bôi ngoài da, Nhỏ mắt, Nhỏ tai...). Mặc định là "Uống" nếu là dạng viên.
 - "instructions": Hướng dẫn chi tiết cách dùng (VD: Uống sau ăn no, uống trước ăn 30 phút, hòa tan trong nước...).
 - "timing": Thời điểm, liều lượng dùng trong ngày (VD: Sáng 1 viên, Tối 1 viên, dùng trong 30 ngày...).
 
@@ -80,6 +85,9 @@ CHỈ TRẢ VỀ DUY NHẤT ĐỊNH DẠNG JSON HỢP LỆ THEO CẤU TRÚC:
       "order": 1,
       "drugName": "Efferalgan",
       "activeIngredient": "Paracetamol",
+      "activeIngredients": [
+        "Paracetamol"
+      ],
       "strength": "500mg",
       "unit": "viên",
       "quantity": 10,
@@ -122,12 +130,17 @@ CÁC NGUYÊN TẮC BẮT BUỘC (NGHIÊM NGẶT - TUÂN THỦ 100%):
 
 Yêu cầu các trường cho từng loại thuốc:
 - "order": Số thứ tự nguyên 1, 2, 3...
-- "drugName": Tên biệt dược / tên thương phẩm thuốc.
-- "activeIngredient": Tên hoạt chất chính / tên gốc hóa học.
+- "drugName": Tên biệt dược / tên thương phẩm thuốc in trên đơn.
+- "activeIngredient": Chuỗi nguyên văn mô tả hoạt chất ghi trên đơn (để hiển thị hồ sơ bệnh án).
+- "activeIngredients": MẢNG DANH SÁCH (array of strings) các hoạt chất y khoa cấu thành nên thuốc, đã được tách riêng và làm sạch danh pháp gốc để tra cứu Dược thư:
+  * Nếu là thuốc đơn chất: Trả về mảng 1 phần tử đã làm sạch hàm lượng (Ví dụ: "Paracetamol 500mg" -> ["Paracetamol"]).
+  * Nếu là thuốc phối hợp có dấu "+", "/", "và", "&": Tách riêng từng hoạt chất thành từng phần tử độc lập (Ví dụ: "Acetylsalicylic acid + clopidogrel" -> ["Acetylsalicylic acid", "Clopidogrel"]).
+  * Loại bỏ các phần trăm, tỷ lệ và ghi chú trong ngoặc đơn khỏi tên hoạt chất (Ví dụ: "Insulin người tái tổ hợp (30% insulin hòa tan & 70% insulin isophan)" -> ["Insulin người", "Insulin isophan"]).
+  * Viết hoa chữ cái đầu cho mỗi hoạt chất.
 - "strength": Hàm lượng (VD: 500mg, 1g, 40mg, 25mcg...).
 - "unit": Đơn vị tính (VD: viên, gói, chai, lọ, ống, tuýp, vỉ, hộp...).
 - "quantity": Số lượng thuốc kê dạng số nguyên (VD: 10, 14, 60...). Nếu không có thì để null.
-- "route": Đường dùng (VD: Uống, Tiêm bắp, Tiêm tĩnh mạch, Bôi ngoài da, Nhỏ mắt, Nhỏ tai...). Mặc định là "Uống" nếu là dạng viên.
+- "route": Đường dùng (VD: Uống, Tiêm bắp, Tiêm dưới da, Tiêm tĩnh mạch, Bôi ngoài da, Nhỏ mắt, Nhỏ tai...). Mặc định là "Uống" nếu là dạng viên.
 - "instructions": Hướng dẫn chi tiết cách dùng (VD: Uống sau ăn no, uống trước ăn 30 phút, hòa tan trong nước...).
 - "timing": Thời điểm, liều lượng dùng trong ngày (VD: Sáng 1 viên, Tối 1 viên, dùng trong 30 ngày...).
 
@@ -157,13 +170,16 @@ CHỈ TRẢ VỀ DUY NHẤT ĐỊNH DẠNG JSON HỢP LỆ THEO CẤU TRÚC:
       "order": 1,
       "drugName": "Efferalgan",
       "activeIngredient": "Paracetamol",
+      "activeIngredients": [
+        "Paracetamol"
+      ],
       "strength": "500mg",
       "unit": "viên",
       "quantity": 10,
       "route": "Uống",
       "instructions": "uống sau ăn no",
       "timing": "uống khi sốt hơn 38*C"
-    }
+    }                       
   ]
 }
 """
@@ -255,10 +271,60 @@ def extract_prescription_gemini(
 
     raise RuntimeError(f"Không thể phân tích đơn thuốc qua Gemini Vision: {last_error}")
 
+def clean_single_ingredient(name: str) -> str:
+    """Làm sạch tên một hoạt chất y khoa theo danh pháp quốc tế (INN/Generic name)"""
+    s = str(name).strip()
+    # Xóa các ghi chú trong ngoặc đơn
+    s = re.sub(r'\(.*?\)', '', s)
+    # Loại bỏ phần trăm
+    s = re.sub(r'\b\d+(?:[\.,]\d+)?\s*%\s*', '', s)
+    # Loại bỏ hàm lượng và đơn vị đo
+    s = re.sub(r'\b\d+(?:[\.,]\d+)?\s*(?:mg|g|ml|mcg|µg|%|iu|ui)(?:/[\w\d]+)?\b', '', s, flags=re.I)
+    s = re.sub(r'\s+', ' ', s).strip(' -:,+&/')
+    if s:
+        return s[0].upper() + s[1:]
+    return ''
+
+def extract_clean_active_ingredients(active_str: str, raw_list: Any = None) -> List[str]:
+    """
+    Trích xuất và làm sạch mảng danh sách hoạt chất y khoa (activeIngredients) phục vụ tra cứu Dược thư:
+    - Bóc tách thuốc phối hợp (+, /, và, &)
+    - Tách bỏ hàm lượng và đơn vị đo
+    - Làm sạch ghi chú tỷ lệ trong ngoặc đơn
+    - Viết hoa đầu từ và loại bỏ trùng lặp
+    """
+    results: List[str] = []
+    if raw_list and isinstance(raw_list, list):
+        for item in raw_list:
+            if item:
+                c = clean_single_ingredient(str(item))
+                if c and c not in results:
+                    results.append(c)
+
+    if not results and active_str:
+        # Nếu có ngoặc chứa hoạt chất chi tiết (như Insulin M30)
+        m_paren = re.search(r'\((.*?)\)', active_str)
+        if m_paren and any(k in m_paren.group(1).lower() for k in ['&', '+', 'insulin', 'hoạt chất', 'acid', '%']):
+            inner = m_paren.group(1)
+            sub_parts = re.split(r'[\+&/,]|\bvà\b|\bphối hợp với\b', inner)
+            for sp in sub_parts:
+                c = clean_single_ingredient(sp)
+                c = re.sub(r'\b(hòa tan|tái tổ hợp)\b', '', c, flags=re.I).strip()
+                if c and c not in results:
+                    results.append(c)
+        if not results:
+            parts = re.split(r'[\+&/,]|\bvà\b|\bphối hợp với\b', active_str)
+            for p in parts:
+                c = clean_single_ingredient(p)
+                if c and c not in results:
+                    results.append(c)
+
+    return results
+
 def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, Any]:
     """
     Chuẩn hóa dữ liệu từng dòng thuốc theo đúng chuẩn DTO Backend (camelCase) và tương thích ngược alias tiếng Việt:
-    drugName | activeIngredient | strength | unit | quantity | route | instructions | timing | order
+    drugName | activeIngredient | activeIngredients | strength | unit | quantity | route | instructions | timing | order
     """
     raw_order = item.get("order") if item.get("order") is not None else (item.get("stt") or item.get("index") or idx)
     try:
@@ -284,12 +350,13 @@ def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, A
             elif active_ingredient.lower() == p2.lower() or p2.lower() in active_ingredient.lower():
                 drug_name = p1
                 active_ingredient = p2
-            else:
-                # Mặc định theo quy chuẩn BYT: Hoạt chất (Biệt dược)
-                drug_name = p2
+            # Nếu active_ingredient đã là hoạt chất riêng (không trùng cả p1 và p2),
+            # thì p2 thường là tỷ lệ/thông số (VD: 30/70, 75/100) hoặc dạng dùng -> giữ nguyên drug_name
         else:
-            drug_name = p2
-            active_ingredient = p1
+            # Chỉ gán drug_name = p2 khi p2 không phải dạng thông số/tỷ lệ số (VD: 30/70)
+            if not re.match(r'^\d+[\/\-]\d+', p2):
+                drug_name = p2
+                active_ingredient = p1
 
     # Tương tự nếu active_ingredient bị dính dạng "Hoạt chất (Ghi chú)"
     m_act_paren = re.match(r'^([^\(\)]+)\s*\(([^\(\)]+)\)$', active_ingredient)
@@ -305,9 +372,16 @@ def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, A
     if strength and strength.lower() in drug_name.lower():
         drug_name = re.sub(re.escape(strength), '', drug_name, flags=re.I).strip()
     drug_name = re.sub(r'[\s\-–]+\d+(?:[\.,]\d+)?\s*(?:mg|g|ml|mcg|µg|%|iu|ui)\b.*$', '', drug_name, flags=re.I).strip()
-    drug_name = re.sub(r'^[\d\.\-\s]+', '', drug_name).strip(" -:,")
+    # Xóa số thứ tự đầu dòng an toàn (chỉ xóa khi có định dạng STT rõ ràng như "1. ", "01 - ", "1) ")
+    drug_name = re.sub(r'^\d{1,2}[\.\)\-:]\s+', '', drug_name).strip(" -:,")
+
+    # Bóc tách và làm sạch mảng hoạt chất chuẩn Dược thư
+    raw_ingredients = item.get("activeIngredients") or item.get("active_ingredients") or item.get("hoat_chats")
+    active_ingredients = extract_clean_active_ingredients(active_ingredient, raw_ingredients)
 
     unit = str(item.get("unit") or item.get("don_vi_tinh") or item.get("đơn vị tính") or item.get("dvt") or "").strip()
+    if unit:
+        unit = unit.capitalize()
 
     raw_qty = item.get("quantity") if item.get("quantity") is not None else (item.get("so_luong") or item.get("số lượng") or item.get("sl"))
     qty_num: Optional[float] = None
@@ -333,6 +407,7 @@ def normalize_medication_item(item: Dict[str, Any], idx: int = 1) -> Dict[str, A
         "order": order_val,
         "drugName": drug_name,
         "activeIngredient": active_ingredient,
+        "activeIngredients": active_ingredients,
         "strength": strength,
         "unit": unit,
         "quantity": qty_num,
@@ -396,6 +471,7 @@ def parse_prescription_text_rule_based(raw_text: str) -> Dict[str, Any]:
                 "order": order_int,
                 "drugName": clean_name.strip(" -:,"),
                 "activeIngredient": "",
+                "activeIngredients": [],
                 "strength": strength,
                 "unit": unit,
                 "quantity": qty_int,
