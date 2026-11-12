@@ -3,7 +3,8 @@ import os
 import json
 import requests
 from typing import Dict, Any, Optional, List, Tuple
-from src.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS
+from src.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS, GEMINI_MODEL
+from src.utils import logger
 from src.calculators import calculate_egfr, calculate_acr
 
 def convert_to_gemini_schema(schema_dict: dict) -> dict:
@@ -159,14 +160,16 @@ def fill_missing_fields(data: dict, schema_dict: dict) -> dict:
 
 def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str, Any]:
     """
-    Tối ưu tốc độ phản hồi toàn trình:
-    1. Bóc tách dữ liệu hành chính & chỉ số số học bằng Regex offline.
-    2. Chỉ trích xuất đoạn chẩn đoán y khoa ngắn và gửi kèm schema cờ bệnh lý thu gọn cho Gemini API.
-    3. Kết hợp kết quả Regex + Gemini thành JSON hoàn chỉnh 100% cấu trúc schema.
+    Trích xuất toàn diện hồ sơ bệnh án bằng Gemini AI (AI-First Architecture):
+    1. Gửi toàn bộ văn bản OCR thô cho Gemini AI để bóc tách ngữ cảnh toàn diện:
+       - Thông tin hành chính (Họ tên, ngày sinh, mã BN, giới tính, CCCD)
+       - Thông tin liên hệ & địa chỉ
+       - Chỉ số xét nghiệm & sinh lý (Huyết áp, Cholesterol, eGFR, ACR...)
+       - Bệnh lý nền & tổn thương cơ quan đích (loại trừ các mục TD/theo dõi)
+    2. Hợp nhất với kết quả Regex offline (làm fallback và bổ khuyết nếu Gemini bỏ sót).
+    3. Tự động tính toán các chỉ số phái sinh (tuổi, Non-HDL, ACR).
+    4. Chuẩn hóa đầy đủ 100% các trường theo schema.json.
     """
-    # 1. Bóc tách bằng Regex offline trước
-    regex_data = parse_medical_fields(text)
-    
     if not schema_path:
         schema_path = os.path.join(os.path.dirname(__file__), "schema.json")
         
@@ -178,28 +181,47 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
         except Exception:
             pass
 
-    # Nếu không có API Key, trả về kết quả bóc tách Regex đã fill missing fields
+    # 1. Bóc tách bằng Regex offline trước làm dữ liệu nền tảng / fallback
+    regex_data = parse_medical_fields(text)
+
+    # Nếu không có API Key, trả về kết quả bóc tách Regex
     if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_API_KEY":
         return fill_missing_fields(regex_data, schema_dict)
 
+    # 2. Gửi toàn bộ văn bản OCR thô cho Gemini AI phân tích toàn diện
+    gemini_data = None
     try:
-        # 2. Trích xuất đoạn chẩn đoán y khoa ngắn (đã lọc các mục TD)
-        chandoan_text = extract_diagnostic_text(text)
+        gemini_schema = convert_to_gemini_schema(schema_dict)
         
-        # 3. Tạo Schema thu gọn chỉ chứa các bệnh lý (boolean)
-        disease_schema_dict = get_disease_only_schema(schema_dict)
-        gemini_schema = convert_to_gemini_schema(disease_schema_dict)
-        
-        # 4. Gửi request Gemini API với prompt tối ưu & tham số sinh siêu tốc
         prompt = (
-            "Bạn là chuyên gia y tế. Hãy phân tích đoạn chẩn đoán sau và xác định các bệnh lý có mặt "
-            "(gán true cho các bệnh lý thực sự được chẩn đoán xác định).\n"
-            "LƯU Ý QUAN TRỌNG: Tuyệt đối KHÔNG gán true cho các bệnh có tiền tố 'TD', 'T/D', 'Theo dõi', 'Nghi ngờ' "
-            "(ví dụ: 'TD suy tim', 'TD bướu giáp' chỉ là theo dõi/nghi ngờ nên phải đặt false).\n\n"
-            "Một số phiếu khám dùng chỉ số khác nhau nhưng cùng 1 ý nghĩa. Ví dụ: egfr và eGFR đều là 1 chỉ số giống nhau\n\n"
-            f"VĂN BẢN CHẨN ĐOÁN:\n{chandoan_text}"
+            "Bạn là chuyên gia y tế và phân tích hồ sơ bệnh án. "
+            "Dưới đây là TOÀN BỘ VĂN BẢN ĐỌC ĐƯỢC TỪ HỒ SƠ BỆNH ÁN / PHIẾU XÉT NGHIỆM / PHIẾU KHÁM BỆNH:\n"
+            "\"\"\"\n"
+            f"{text}\n"
+            "\"\"\"\n\n"
+            "NHIỆM VỤ CỦA BẠN:\n"
+            "Phân tích toàn diện tất cả các trang hồ sơ và trích xuất dữ liệu vào cấu trúc JSON theo đúng schema quy định:\n"
+            "1. THONG_TIN_CA_NHAN: Họ và tên bệnh nhân (ho_va_ten), Mã bệnh nhân (ma_benh_nhan, ví dụ BN000427168), "
+            "Ngày sinh (ngay_sinh, dạng dd/mm/yyyy hoặc 01/01/yyyy nếu chỉ có năm), Giới tính ('Nam' hoặc 'Nữ'), "
+            "CCCD/CMND (cccd_cmnd nếu có), trạng thái hồ sơ ('Hoạt động').\n"
+            "2. THONG_TIN_LIEN_HE_AND_DIA_CHI: Địa chỉ đầy đủ (dia_chi_day_du), Tỉnh/Thành phố (tinh_thanh_pho), "
+            "Số điện thoại (so_dien_thoai nếu có), Thôn/Xóm/Số nhà (so_nha_ten_duong).\n"
+            "3. A_CHI_SO_SINH_LY_CO_BAN: Tuổi bệnh nhân (tuoi - nếu không có hãy tính từ năm sinh đến năm 2026), "
+            "Giới tính, Huyết áp tâm thu (huyet_ap_tam_thu_sbp), Cholesterol toàn phần (cholesterol_toan_phan), "
+            "HDL-Cholesterol (hdl_cholesterol), Non-HDL-Cholesterol (non_hdl_cholesterol).\n"
+            "4. CHI_SO_AND_TIEN_SU_SUC_KHOE: Chiều cao (chieu_cao - cm), Cân nặng (can_nang - kg), Nhóm máu (nhom_mau), "
+            "Tiền sử bệnh lý tóm tắt (tien_su_benh_ly).\n"
+            "5. C_BENH_LY_MAN_TINH_KEM_THEO: Độ thanh thải eGFR (egfr), Tỷ lệ Albumin/Creatinin ACR (acr), "
+            "và các cờ bệnh lý (true/false) như suy_than, dai_thao_duong, tang_huyet_ap, vua_xo_mach_mau, "
+            "roi_loan_chuyen_hoa_mo_mau, dot_quy_nao, nhoi_mau_co_tim, benh_ly_mach_vanh...\n"
+            "6. TON_THUONG_CO_QUAN_DICH: albumin_microalbumin_nieu (true nếu có xét nghiệm albumin niệu dương tính hoặc có chỉ số), "
+            "phi_dai_that_trai, ton_thuong_day_mat, ton_thuong_tham_lang_tren_nao.\n"
+            "7. PHAN_LOAI_BENH_LY_NEN: has_underlying_disease (true nếu có bất kỳ bệnh lý nền nào).\n\n"
+            "LƯU Ý ĐẶC BIỆT:\n"
+            "- Tuyệt đối KHÔNG gán true cho các bệnh có tiền tố 'TD', 'T/D', 'Theo dõi', 'Nghi ngờ'.\n"
+            "- Nếu thông tin/chỉ số nào không xuất hiện trong tài liệu, hãy để null hoặc false theo đúng kiểu dữ liệu của schema."
         )
-        
+
         payload = {
             "contents": [{
                 "parts": [{
@@ -209,46 +231,94 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": gemini_schema,
-                "temperature": GEMINI_TEMPERATURE,
-                "maxOutputTokens": GEMINI_MAX_OUTPUT_TOKENS
+                "temperature": 0.1,
+                "maxOutputTokens": 4096
             }
         }
         
         headers = {"Content-Type": "application/json"}
         
-        models_to_try = [GEMINI_MODEL]
-        for fb in ["gemini-3.5-flash-lite", "gemini-3.5-flash"]:
-            if fb not in models_to_try:
-                models_to_try.append(fb)
-        
-        for cur_model in models_to_try:
+        models_to_try = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.5-flash-lite"]
+        seen_models = set()
+        unique_models = []
+        for m in models_to_try:
+            if m and m not in seen_models:
+                seen_models.add(m)
+                unique_models.append(m)
+
+        for cur_model in unique_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={GEMINI_API_KEY}"
             try:
-                response = requests.post(url, json=payload, headers=headers, timeout=15)
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
                 if response.status_code == 200:
                     resp_json = response.json()
                     candidates = resp_json.get("candidates", [])
                     if candidates:
                         text_content = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                         gemini_data = json.loads(text_content)
-                        
-                        # Merge dữ liệu bệnh lý từ Gemini vào regex_data
-                        for sec_name, fields in gemini_data.items():
-                            if sec_name in regex_data and isinstance(fields, dict):
-                                for f_name, f_val in fields.items():
-                                    if f_val is True or regex_data[sec_name].get(f_name) is True:
-                                        regex_data[sec_name][f_name] = True
-                                    elif regex_data[sec_name].get(f_name) is None:
-                                        regex_data[sec_name][f_name] = f_val
                         break
-            except Exception:
+                else:
+                    logger.warning(f"Gemini API {cur_model} trả về status {response.status_code}: {response.text[:200]}")
+            except Exception as e:
+                logger.warning(f"Lỗi kết nối Gemini API {cur_model}: {e}")
                 continue
-                                
-    except Exception as e:
-        # Nếu có lỗi kết nối/API, giữ lại kết quả từ Regex
-        pass
 
-    return fill_missing_fields(regex_data, schema_dict)
+    except Exception as e:
+        logger.error(f"Lỗi trong quá trình chuẩn bị hoặc gọi Gemini AI: {e}")
+        gemini_data = None
+
+    # 3. Hợp nhất kết quả: Ưu tiên dữ liệu từ Gemini AI, fallback về Regex nếu Gemini thiếu trường
+    merged_data = {}
+    if gemini_data and isinstance(gemini_data, dict):
+        for sec_name, sec_fields in schema_dict.items():
+            merged_data[sec_name] = {}
+            g_sec = gemini_data.get(sec_name, {})
+            r_sec = regex_data.get(sec_name, {})
+            
+            for f_name, f_meta in sec_fields.items():
+                g_val = g_sec.get(f_name) if isinstance(g_sec, dict) else None
+                r_val = r_sec.get(f_name) if isinstance(r_sec, dict) else None
+                
+                f_type = f_meta.get("type", "string").lower()
+                
+                if f_type == "boolean":
+                    # Cờ boolean: true nếu Gemini HOẶC Regex phát hiện true
+                    merged_data[sec_name][f_name] = True if (g_val is True or r_val is True) else False
+                else:
+                    # Các trường thông tin / chỉ số: ưu tiên Gemini nếu có giá trị
+                    if g_val is not None and str(g_val).strip() != "" and str(g_val).lower() != "null":
+                        merged_data[sec_name][f_name] = g_val
+                    elif r_val is not None and str(r_val).strip() != "" and str(r_val).lower() != "null":
+                        merged_data[sec_name][f_name] = r_val
+                    else:
+                        merged_data[sec_name][f_name] = None
+    else:
+        # Nếu Gemini không phản hồi, dùng 100% regex_data
+        merged_data = regex_data
+
+    # 4. Tự động tính toán các trường bổ sung nếu thiếu
+    # - Tự tính Non-HDL
+    cs_sec = merged_data.get("A_CHI_SO_SINH_LY_CO_BAN", {})
+    chol = cs_sec.get("cholesterol_toan_phan")
+    hdl = cs_sec.get("hdl_cholesterol")
+    if chol is not None and hdl is not None and cs_sec.get("non_hdl_cholesterol") is None:
+        try:
+            cs_sec["non_hdl_cholesterol"] = round(float(chol) - float(hdl), 2)
+        except (ValueError, TypeError):
+            pass
+
+    # - Tự tính tuổi từ ngày sinh nếu tuổi bị thiếu
+    tuoi = cs_sec.get("tuoi")
+    ngay_sinh_str = merged_data.get("THONG_TIN_CA_NHAN", {}).get("ngay_sinh")
+    if (tuoi is None or tuoi == 0) and ngay_sinh_str:
+        m_year = re.search(r'(\d{4})', str(ngay_sinh_str))
+        if m_year:
+            try:
+                cs_sec["tuoi"] = 2026 - int(m_year.group(1))
+            except Exception:
+                pass
+
+    return fill_missing_fields(merged_data, schema_dict)
 
 def calculate_acr(alb_val: float, alb_unit: str = "mg/L", cre_val: float = 0.0, cre_unit: str = "mmol/L") -> Optional[float]:
     """
