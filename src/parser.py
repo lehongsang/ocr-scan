@@ -479,19 +479,27 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
     }
 
     # --- 1. Họ và tên & Mã bệnh nhân ---
-    name_match = re.search(r'(?:Họ và tên|Họ tên|Tên bệnh nhân):\s*([^\n]+)', text, re.IGNORECASE)
-    if name_match:
+    name_match = re.search(r'(?:Họ và tên|Họ tên|Tên bệnh nhân|Họ và tên người bệnh|Tên người bệnh):[ \t]*([^\r\n]+)', text, re.IGNORECASE)
+    if name_match and not re.search(r'^(?:Ngày sinh|Giới tính|Mã|Tuổi|Địa chỉ|Số\s*định\s*danh)', name_match.group(1).strip(), re.I):
         result["THONG_TIN_CA_NHAN"]["ho_va_ten"] = clean_value(name_match.group(1))
     else:
-        # Fallback tìm kiếm dòng đầu tiên dạng chữ IN HOA tên bệnh nhân (Ví dụ: NGUYỄN THỊ HỢP - BN000801164)
-        first_lines = text.split('\n')[:5]
-        for line in first_lines:
-            match = re.match(r'^([A-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝĂĐĨŨƠƯ\s]+)(?:\s*-\s*(BN\d+))?$', line.strip())
-            if match:
-                result["THONG_TIN_CA_NHAN"]["ho_va_ten"] = clean_value(match.group(1))
-                if match.group(2):
-                    result["THONG_TIN_CA_NHAN"]["ma_benh_nhan"] = clean_value(match.group(2))
-                break
+        # Fallback 1: Tìm tên IN HOA đứng ngay sau tiêu đề ĐƠN THUỐC / PHIẾU KHÁM BỆNH (thường gặp khi layout PDF in 2 cột)
+        doc_header_match = re.search(r'(?:ĐƠN THUỐC|PHIẾU KHÁM BỆNH|HỒ SƠ BỆNH ÁN)\s*\n+([A-ZÀ-Ỹ \t]{4,40})\n', text)
+        if doc_header_match:
+            cand = doc_header_match.group(1).strip()
+            if not any(k in cand.lower() for k in ["bệnh viện", "phòng khám", "bác sĩ", "chẩn đoán", "địa chỉ", "khoa"]):
+                result["THONG_TIN_CA_NHAN"]["ho_va_ten"] = clean_value(cand)
+
+        # Fallback 2: Tìm kiếm dòng đầu tiên dạng chữ IN HOA tên bệnh nhân (Ví dụ: NGUYỄN THỊ HỢP - BN000801164)
+        if not result["THONG_TIN_CA_NHAN"]["ho_va_ten"]:
+            first_lines = text.split('\n')[:5]
+            for line in first_lines:
+                match = re.match(r'^([A-ZÀ-Ỹ\s]+)(?:\s*-\s*(BN\d+))?$', line.strip())
+                if match:
+                    result["THONG_TIN_CA_NHAN"]["ho_va_ten"] = clean_value(match.group(1))
+                    if match.group(2):
+                        result["THONG_TIN_CA_NHAN"]["ma_benh_nhan"] = clean_value(match.group(2))
+                    break
 
     # Trích xuất Mã bệnh nhân nếu có trường riêng (ví dụ: "Mã BN: BN000802016", "Mã bệnh nhân: 123456")
     bn_match = re.search(r'(?:Mã\s*(?:số\s*)?(?:BN|bệnh\s*nhân|người\s*bệnh)|Mã\s*BN):\s*([A-Za-z0-9]+)', text, re.IGNORECASE)
@@ -519,16 +527,26 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
 
     # --- 3. Năm sinh & Ngày sinh ---
     ns_match = re.search(r'(?:NS|Năm sinh):\s*(\d{4})', text, re.IGNORECASE)
-    ngaysinh_match = re.search(r'Ngày sinh:\s*([^\n]+)', text, re.IGNORECASE)
+    # Bắt ngày sinh chính xác dạng dd/mm/yyyy trước, tránh nuốt các trường cùng dòng (Giới tính, Cân nặng)
+    ngaysinh_date_match = re.search(r'Ngày sinh:[ \t]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{4})', text, re.IGNORECASE)
+    ngaysinh_raw_match = re.search(r'Ngày sinh:[ \t]*([^\r\n]+)', text, re.IGNORECASE)
     
     yob = None
     if ns_match:
         yob = int(ns_match.group(1))
         result["THONG_TIN_CA_NHAN"]["ngay_sinh"] = f"01/01/{yob}"
-    elif ngaysinh_match:
-        ngay_sinh_str = clean_value(ngaysinh_match.group(1))
+    elif ngaysinh_date_match:
+        ngay_sinh_str = ngaysinh_date_match.group(1)
         result["THONG_TIN_CA_NHAN"]["ngay_sinh"] = ngay_sinh_str
         year_match = re.search(r'(\d{4})$', ngay_sinh_str)
+        if year_match:
+            yob = int(year_match.group(1))
+    elif ngaysinh_raw_match:
+        ngay_sinh_str = clean_value(ngaysinh_raw_match.group(1))
+        # Tách bỏ phần Giới tính/Cân nặng nếu bị dính cùng dòng
+        ngay_sinh_clean = re.sub(r'\s*(?:Giới tính|GT|Cân nặng|CN).*$', '', ngay_sinh_str, flags=re.I).strip()
+        result["THONG_TIN_CA_NHAN"]["ngay_sinh"] = ngay_sinh_clean
+        year_match = re.search(r'(\d{4})', ngay_sinh_clean)
         if year_match:
             yob = int(year_match.group(1))
 
