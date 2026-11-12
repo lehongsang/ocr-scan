@@ -208,7 +208,7 @@ def parse_medical_fields_gemini(text: str, schema_path: str = None) -> Dict[str,
             "Số điện thoại (so_dien_thoai nếu có), Thôn/Xóm/Số nhà (so_nha_ten_duong).\n"
             "3. A_CHI_SO_SINH_LY_CO_BAN: Tuổi bệnh nhân (tuoi - nếu không có hãy tính từ năm sinh đến năm 2026), "
             "Giới tính, Huyết áp tâm thu (huyet_ap_tam_thu_sbp), Cholesterol toàn phần (cholesterol_toan_phan), "
-            "HDL-Cholesterol (hdl_cholesterol), Non-HDL-Cholesterol (non_hdl_cholesterol).\n"
+            "HDL-Cholesterol (hdl_cholesterol), LDL-Cholesterol (ldl_cholesterol), Triglycerid (triglycerid), Non-HDL-Cholesterol (non_hdl_cholesterol).\n"
             "4. CHI_SO_AND_TIEN_SU_SUC_KHOE: Chiều cao (chieu_cao - cm), Cân nặng (can_nang - kg), Nhóm máu (nhom_mau), "
             "Tiền sử bệnh lý tóm tắt (tien_su_benh_ly).\n"
             "5. C_BENH_LY_MAN_TINH_KEM_THEO: Độ thanh thải eGFR (egfr), Tỷ lệ Albumin/Creatinin ACR (acr), "
@@ -496,6 +496,8 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
             "huyet_ap_tam_thu_sbp": None,
             "cholesterol_toan_phan": None,
             "hdl_cholesterol": None,
+            "ldl_cholesterol": None,
+            "triglycerid": None,
             "non_hdl_cholesterol": None
         },
         "TON_THUONG_CO_QUAN_DICH": {
@@ -756,7 +758,23 @@ def parse_medical_fields(text: str) -> Dict[str, Any]:
     if hdl_val is not None:
         result["A_CHI_SO_SINH_LY_CO_BAN"]["hdl_cholesterol"] = hdl_val
 
-    # --- 9.1. Non-HDL-Cholesterol (Tự động tính = Cholesterol toàn phần - HDL-Cholesterol) ---
+    # --- 9.1. LDL-Cholesterol (Mỡ xấu) ---
+    ldl_val, _ = extract_lab_measurement(
+        text, 
+        r'LDL(?:-|\s*)Cholesterol|LDL\s*[\.\-]?\s*C\b'
+    )
+    if ldl_val is not None:
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["ldl_cholesterol"] = ldl_val
+
+    # --- 9.2. Triglycerid (Chất béo trung tính) ---
+    tri_val, _ = extract_lab_measurement(
+        text, 
+        r'Triglycerid(?:e|es)?\b'
+    )
+    if tri_val is not None:
+        result["A_CHI_SO_SINH_LY_CO_BAN"]["triglycerid"] = tri_val
+
+    # --- 9.3. Non-HDL-Cholesterol (Tự động tính = Cholesterol toàn phần - HDL-Cholesterol) ---
     chol_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("cholesterol_toan_phan")
     hdl_val = result["A_CHI_SO_SINH_LY_CO_BAN"].get("hdl_cholesterol")
     if chol_val is not None and hdl_val is not None:
@@ -980,6 +998,24 @@ def extract_data_provenance(pages: List[Dict[str, Any]], final_data: Dict[str, A
             if h_val == hdl:
                 ev = find_evidence_line(p["text"], r'HDL(?:-|\s*)Cholesterol|HDL\s*[\.\-]?\s*C\b')
                 add_provenance("hdl_cholesterol", "A_CHI_SO_SINH_LY_CO_BAN", "HDL-Cholesterol", hdl, p["page_index"], p["filename"], ev)
+                break
+
+    ldl = sinh_ly.get("ldl_cholesterol")
+    if ldl is not None:
+        for p in pages:
+            l_val, _ = extract_lab_measurement(p["text"], r'LDL(?:-|\s*)Cholesterol|LDL\s*[\.\-]?\s*C\b')
+            if l_val == ldl:
+                ev = find_evidence_line(p["text"], r'LDL(?:-|\s*)Cholesterol|LDL\s*[\.\-]?\s*C\b')
+                add_provenance("ldl_cholesterol", "A_CHI_SO_SINH_LY_CO_BAN", "LDL-Cholesterol", ldl, p["page_index"], p["filename"], ev)
+                break
+
+    tri = sinh_ly.get("triglycerid")
+    if tri is not None:
+        for p in pages:
+            t_val, _ = extract_lab_measurement(p["text"], r'Triglycerid(?:e|es)?\b')
+            if t_val == tri:
+                ev = find_evidence_line(p["text"], r'Triglycerid(?:e|es)?\b')
+                add_provenance("triglycerid", "A_CHI_SO_SINH_LY_CO_BAN", "Triglycerid", tri, p["page_index"], p["filename"], ev)
                 break
 
     non_hdl = sinh_ly.get("non_hdl_cholesterol")

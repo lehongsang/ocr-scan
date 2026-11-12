@@ -41,6 +41,16 @@
       "required": true,
       "description": "Chỉ số HDL-Cholesterol"
     },
+    "ldl_cholesterol": {
+      "type": "float",
+      "unit": "mmol/L",
+      "description": "Chỉ số LDL-Cholesterol (Cholesterol xấu)"
+    },
+    "triglycerid": {
+      "type": "float",
+      "unit": "mmol/L",
+      "description": "Chỉ số Triglycerid (Chất béo trung tính)"
+    },
     "non_hdl_cholesterol": {
       "type": "float",
       "unit": "mmol/L",
