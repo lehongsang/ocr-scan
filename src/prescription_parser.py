@@ -32,7 +32,7 @@ CÁC NGUYÊN TẮC BẮT BUỘC (NGHIÊM NGẶT - TUÂN THỦ 100%):
    - TUYỆT ĐỐI KHÔNG để cả cụm đóng mở ngoặc chứa 2 tên vào drugName (ví dụ: KHÔNG ĐƯỢC để "Sulpiride (Sulpiride stella)" hay "Colecalciferol (Brivita D3)").
    - Dạng "Hoạt chất (Tên biệt dược/thương mại)": drugName là tên biệt dược/thương phẩm của nhà sản xuất (VD: "Sulpiride stella", "Brivita D3"), activeIngredient là tên hoạt chất gốc (VD: "Sulpiride", "Colecalciferol").
    - Dạng "Tên biệt dược (Hoạt chất)": drugName là tên biệt dược (VD: "Augmentin"), activeIngredient là hoạt chất (VD: "Amoxicillin + Acid clavulanic").
-   - Dạng chỉ có tên biệt dược: drugName là tên biệt dược (VD: "Efferalgan", "Nexium"), activeIngredient là hoạt chất theo dược thư (VD: "Paracetamol", "Esomeprazole").
+   - Dạng chỉ có tên biệt dược: drugName là tên biệt dược (VD: "Efferalgan", "Nexium", "Plavix", "Augmentin"). Nếu dòng thuốc trong đơn chỉ ghi tên biệt dược mà không ghi hoạt chất (ví dụ 'Nexium', 'Plavix', 'Augmentin'), hãy tự động dựa trên tri thức dược lý để điền hoạt chất chuẩn vào trường activeIngredient và activeIngredients (Ví dụ: "Efferalgan" -> "Paracetamol", "Nexium" -> "Esomeprazole", "Plavix" -> "Clopidogrel", "Augmentin" -> "Amoxicillin + Acid clavulanic").
    - TUYỆT ĐỐI KHÔNG để hàm lượng (500mg, 50mg, 1g, 25mcg...) bên trong drugName, hàm lượng bắt buộc phải đưa vào trường "strength".
 
 4. GIẢI MÃ TỪ VIẾT TẮT Y TẾ VÀ LỊCH DÙNG:
@@ -45,10 +45,10 @@ CÁC NGUYÊN TẮC BẮT BUỘC (NGHIÊM NGẶT - TUÂN THỦ 100%):
 Yêu cầu các trường cho từng loại thuốc:
 - "order": Số thứ tự nguyên 1, 2, 3...
 - "drugName": Tên biệt dược / tên thương phẩm thuốc in trên đơn.
-- "activeIngredient": Chuỗi nguyên văn mô tả hoạt chất ghi trên đơn (để hiển thị hồ sơ bệnh án).
-- "activeIngredients": MẢNG DANH SÁCH (array of strings) các hoạt chất y khoa cấu thành nên thuốc, đã được tách riêng và làm sạch danh pháp gốc để tra cứu Dược thư:
-  * Nếu là thuốc đơn chất: Trả về mảng 1 phần tử đã làm sạch hàm lượng (Ví dụ: "Paracetamol 500mg" -> ["Paracetamol"]).
-  * Nếu là thuốc phối hợp có dấu "+", "/", "và", "&": Tách riêng từng hoạt chất thành từng phần tử độc lập (Ví dụ: "Acetylsalicylic acid + clopidogrel" -> ["Acetylsalicylic acid", "Clopidogrel"]).
+- "activeIngredient": Chuỗi mô tả hoạt chất ghi trên đơn (để hiển thị hồ sơ bệnh án). Nếu dòng thuốc trong đơn chỉ ghi tên biệt dược mà không ghi hoạt chất, hãy tự động dựa trên tri thức dược lý để điền hoạt chất chuẩn vào trường này.
+- "activeIngredients": MẢNG DANH SÁCH (array of strings) các hoạt chất y khoa cấu thành nên thuốc, đã được tách riêng và làm sạch danh pháp gốc để tra cứu Dược thư. Nếu dòng thuốc trong đơn chỉ ghi tên biệt dược mà không ghi hoạt chất (ví dụ 'Nexium', 'Plavix', 'Augmentin'), hãy tự động dựa trên tri thức dược lý để điền hoạt chất chuẩn vào mảng này:
+  * Nếu là thuốc đơn chất: Trả về mảng 1 phần tử đã làm sạch hàm lượng (Ví dụ: "Paracetamol 500mg" -> ["Paracetamol"], "Nexium" -> ["Esomeprazole"], "Plavix" -> ["Clopidogrel"]).
+  * Nếu là thuốc phối hợp có dấu "+", "/", "và", "&": Tách riêng từng hoạt chất thành từng phần tử độc lập (Ví dụ: "Acetylsalicylic acid + clopidogrel" -> ["Acetylsalicylic acid", "Clopidogrel"], "Augmentin" -> ["Amoxicillin", "Acid clavulanic"]).
   * Loại bỏ các phần trăm, tỷ lệ và ghi chú trong ngoặc đơn khỏi tên hoạt chất (Ví dụ: "Insulin người tái tổ hợp (30% insulin hòa tan & 70% insulin isophan)" -> ["Insulin người", "Insulin isophan"]).
   * Viết hoa chữ cái đầu cho mỗi hoạt chất.
 - "strength": Hàm lượng (VD: 500mg, 1g, 40mg, 25mcg...).
@@ -118,7 +118,7 @@ CÁC NGUYÊN TẮC BẮT BUỘC (NGHIÊM NGẶT - TUÂN THỦ 100%):
    - TUYỆT ĐỐI KHÔNG để cả cụm đóng mở ngoặc chứa 2 tên vào drugName (ví dụ: KHÔNG ĐƯỢC để "Sulpiride (Sulpiride stella)" hay "Colecalciferol (Brivita D3)").
    - Dạng "Hoạt chất (Tên biệt dược/thương mại)": drugName là tên biệt dược/thương phẩm của nhà sản xuất (VD: "Sulpiride stella", "Brivita D3"), activeIngredient là tên hoạt chất gốc (VD: "Sulpiride", "Colecalciferol").
    - Dạng "Tên biệt dược (Hoạt chất)": drugName là tên biệt dược (VD: "Augmentin"), activeIngredient là hoạt chất (VD: "Amoxicillin + Acid clavulanic").
-   - Dạng chỉ có tên biệt dược: drugName là tên biệt dược (VD: "Efferalgan", "Nexium"), activeIngredient là hoạt chất theo dược thư (VD: "Paracetamol", "Esomeprazole").
+   - Dạng chỉ có tên biệt dược: drugName là tên biệt dược (VD: "Efferalgan", "Nexium", "Plavix", "Augmentin"). Nếu dòng thuốc trong đơn chỉ ghi tên biệt dược mà không ghi hoạt chất (ví dụ 'Nexium', 'Plavix', 'Augmentin'), hãy tự động dựa trên tri thức dược lý để điền hoạt chất chuẩn vào trường activeIngredient và activeIngredients (Ví dụ: "Efferalgan" -> "Paracetamol", "Nexium" -> "Esomeprazole", "Plavix" -> "Clopidogrel", "Augmentin" -> "Amoxicillin + Acid clavulanic").
    - TUYỆT ĐỐI KHÔNG để hàm lượng (500mg, 50mg, 1g, 25mcg...) bên trong drugName, hàm lượng bắt buộc phải đưa vào trường "strength".
 
 4. GIẢI MÃ TỪ VIẾT TẮT Y TẾ VÀ LỊCH DÙNG:
@@ -131,10 +131,10 @@ CÁC NGUYÊN TẮC BẮT BUỘC (NGHIÊM NGẶT - TUÂN THỦ 100%):
 Yêu cầu các trường cho từng loại thuốc:
 - "order": Số thứ tự nguyên 1, 2, 3...
 - "drugName": Tên biệt dược / tên thương phẩm thuốc in trên đơn.
-- "activeIngredient": Chuỗi nguyên văn mô tả hoạt chất ghi trên đơn (để hiển thị hồ sơ bệnh án).
-- "activeIngredients": MẢNG DANH SÁCH (array of strings) các hoạt chất y khoa cấu thành nên thuốc, đã được tách riêng và làm sạch danh pháp gốc để tra cứu Dược thư:
-  * Nếu là thuốc đơn chất: Trả về mảng 1 phần tử đã làm sạch hàm lượng (Ví dụ: "Paracetamol 500mg" -> ["Paracetamol"]).
-  * Nếu là thuốc phối hợp có dấu "+", "/", "và", "&": Tách riêng từng hoạt chất thành từng phần tử độc lập (Ví dụ: "Acetylsalicylic acid + clopidogrel" -> ["Acetylsalicylic acid", "Clopidogrel"]).
+- "activeIngredient": Chuỗi mô tả hoạt chất ghi trên đơn (để hiển thị hồ sơ bệnh án). Nếu dòng thuốc trong đơn chỉ ghi tên biệt dược mà không ghi hoạt chất, hãy tự động dựa trên tri thức dược lý để điền hoạt chất chuẩn vào trường này.
+- "activeIngredients": MẢNG DANH SÁCH (array of strings) các hoạt chất y khoa cấu thành nên thuốc, đã được tách riêng và làm sạch danh pháp gốc để tra cứu Dược thư. Nếu dòng thuốc trong đơn chỉ ghi tên biệt dược mà không ghi hoạt chất (ví dụ 'Nexium', 'Plavix', 'Augmentin'), hãy tự động dựa trên tri thức dược lý để điền hoạt chất chuẩn vào mảng này:
+  * Nếu là thuốc đơn chất: Trả về mảng 1 phần tử đã làm sạch hàm lượng (Ví dụ: "Paracetamol 500mg" -> ["Paracetamol"], "Nexium" -> ["Esomeprazole"], "Plavix" -> ["Clopidogrel"]).
+  * Nếu là thuốc phối hợp có dấu "+", "/", "và", "&": Tách riêng từng hoạt chất thành từng phần tử độc lập (Ví dụ: "Acetylsalicylic acid + clopidogrel" -> ["Acetylsalicylic acid", "Clopidogrel"], "Augmentin" -> ["Amoxicillin", "Acid clavulanic"]).
   * Loại bỏ các phần trăm, tỷ lệ và ghi chú trong ngoặc đơn khỏi tên hoạt chất (Ví dụ: "Insulin người tái tổ hợp (30% insulin hòa tan & 70% insulin isophan)" -> ["Insulin người", "Insulin isophan"]).
   * Viết hoa chữ cái đầu cho mỗi hoạt chất.
 - "strength": Hàm lượng (VD: 500mg, 1g, 40mg, 25mcg...).
